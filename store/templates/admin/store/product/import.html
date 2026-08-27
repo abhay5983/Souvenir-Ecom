@@ -1,0 +1,18 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> &rsaquo; <a href="{% url 'admin:store_product_changelist' %}">Products</a> &rsaquo; Import Excel</div>
+{% endblock %}
+{% block content %}
+<div id="content-main">
+  <p>Use one row per sellable book. Existing SKUs are updated and new SKUs are created.</p>
+  <p><a class="button" href="{{ template_url }}">Download current Excel template</a></p>
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <fieldset class="module aligned">
+      <div class="form-row"><label class="required" for="catalogue_file">Excel file:</label><input id="catalogue_file" name="catalogue_file" type="file" accept=".xlsx" required></div>
+      <div class="form-row"><label for="replace_catalogue">Full replacement:</label><input id="replace_catalogue" name="replace_catalogue" type="checkbox"> <span class="help">Deactivate currently active products whose SKUs are absent from this file.</span></div>
+    </fieldset>
+    <div class="submit-row"><input type="submit" value="Validate and import" class="default"></div>
+  </form>
+</div>
+{% endblock %}
