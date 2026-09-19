@@ -49,12 +49,6 @@ function Footer() {
               </li>
 
               <li>
-                <Link to="/activate">
-                  Activate PartnerKey
-                </Link>
-              </li>
-
-              <li>
                 <Link to="/help/guides/place-sales-order">
                   Ordering guide
                 </Link>
@@ -83,14 +77,17 @@ function Footer() {
               <li>
                 <Link to="/terms">Terms</Link>
               </li>
+
+              <li>
+                <Link to="/return-policy">Return Policy</Link>
+              </li>
             </ul>
           </div>
         </div>
 
         <div className="footer-bottom">
           <span>
-            © 2026 Souvenir Publishers. Prototype content requires business
-            verification.
+            © 2026 Souvenir Publishers. All rights reserved.
           </span>
 
           <span>

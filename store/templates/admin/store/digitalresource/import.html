@@ -1,0 +1,17 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> &rsaquo; <a href="{% url 'admin:store_digitalresource_changelist' %}">Digital resources</a> &rsaquo; Import</div>
+{% endblock %}
+{% block content %}
+<div id="content-main">
+  <p>Upload student and teacher links for books already in the catalogue. ISBN maps every row to its book.</p>
+  <p><a class="button" href="{{ template_url }}">Download resource-links template</a></p>
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <fieldset class="module aligned">
+      <div class="form-row"><label class="required" for="resource_file">Excel file:</label><input id="resource_file" name="resource_file" type="file" accept=".xlsx" required></div>
+    </fieldset>
+    <div class="submit-row"><input type="submit" value="Validate and import" class="default"></div>
+  </form>
+</div>
+{% endblock %}

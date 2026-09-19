@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "../../context/AuthContext.jsx";
-import { catalogue } from "../../data/catalog.js";
+import { useCatalogue } from "../../context/CatalogueContext.jsx";
+import { ecommerceService } from "../../services/ecommerceService.js";
 
 /* =========================================================
    DIGITAL RESOURCE REQUEST
@@ -162,55 +163,6 @@ const RESOURCE_OPTIONS = [
   },
 ];
 
-/*
- IMPORTANT:
- These mappings control which resource cards appear
- for a selected series.
-
- Add your real series IDs here as needed.
-*/
-const CONFIGURED_SERIES_RESOURCES = {
-  "oakwood-english-course-book": [
-    "EBOOK",
-    "AUDIO_BOOK",
-    "PODCAST",
-    "VIDEO",
-    "INTERACTIVE_ACTIVITY",
-    "QUIZ",
-    "TEST_YOURSELF",
-    "QUESTION_BANK",
-    "TEACHER_RESOURCE",
-    "ANSWER_KEY",
-    "OFFLINE_SMARTBOARD_PENDRIVE",
-  ],
-
-  "explorer-science": [
-    "EBOOK",
-    "VIDEO",
-    "INTERACTIVE_ACTIVITY",
-    "QUIZ",
-    "TEST_YOURSELF",
-    "QUESTION_BANK",
-    "TEACHER_RESOURCE",
-    "QUESTION_PAPER_GENERATOR",
-    "EXAM_PRO",
-    "ANSWER_KEY",
-    "OFFLINE_SMARTBOARD_PENDRIVE",
-  ],
-
-  "icse-steps-to-mathematics": [
-    "EBOOK",
-    "VIDEO",
-    "INTERACTIVE_ACTIVITY",
-    "TEST_YOURSELF",
-    "QUESTION_BANK",
-    "QUESTION_PAPER_GENERATOR",
-    "EXAM_PRO",
-    "ANSWER_KEY",
-    "OFFLINE_SMARTBOARD_PENDRIVE",
-  ],
-};
-
 const INDIA_STATES = [
   ["AN", "Andaman and Nicobar Islands"],
   ["AP", "Andhra Pradesh"],
@@ -291,8 +243,6 @@ const INITIAL_FORM = {
 
   purpose: "",
   usageDetails: "",
-  contactOtp: "",
-
   authorisedConfirmed: false,
   privacyAcknowledged: false,
 };
@@ -1210,6 +1160,9 @@ function IdentityStep({
 ========================================================= */
 
 function CatalogueStep({
+  catalogue,
+  catalogueLoading,
+  catalogueError,
   form,
   updateField,
   previousStep,
@@ -1227,7 +1180,7 @@ function CatalogueStep({
           .map((series) => series.subject),
       ),
     ).sort();
-  }, []);
+  }, [catalogue]);
 
   const seriesOptions = useMemo(() => {
     return catalogue.filter(
@@ -1235,7 +1188,7 @@ function CatalogueStep({
         series.publicVisibility &&
         series.subject === form.subject,
     );
-  }, [form.subject]);
+  }, [catalogue, form.subject]);
 
   const selectedSeries = catalogue.find(
     (series) => series.id === form.seriesId,
@@ -1306,6 +1259,9 @@ function CatalogueStep({
           {error}
         </div>
       )}
+
+      {catalogueLoading && <div className="notice neutral">Loading the current book catalogue...</div>}
+      {catalogueError && <div className="notice danger">The catalogue could not be loaded: {catalogueError}</div>}
 
       <div className="form-grid">
         <div className="form-field">
@@ -1433,7 +1389,7 @@ function CatalogueStep({
           Back
         </button>
 
-        <button
+        <button 
           className="button"
           type="submit"
         >
@@ -1449,6 +1405,7 @@ function CatalogueStep({
 ========================================================= */
 
 function ResourceStep({
+  catalogue,
   form,
   updateField,
   previousStep,
@@ -1467,14 +1424,20 @@ function ResourceStep({
     options instead of the old single
     "Availability Enquiry" card.
   */
-  const configured =
-    CONFIGURED_SERIES_RESOURCES[form.seriesId];
+  const selectedSeries = catalogue.find(
+    (series) => series.id === form.seriesId,
+  );
+  const configuredTitles = (
+    selectedSeries?.digitalFeatures ?? []
+  ).map((item) => item.toLowerCase());
 
   const resources = RESOURCE_OPTIONS.filter(
     (resource) => {
       if (
-        configured &&
-        !configured.includes(resource.code)
+        configuredTitles.length > 0 &&
+        !configuredTitles.includes(
+          resource.title.toLowerCase(),
+        )
       ) {
         return false;
       }
@@ -1616,10 +1579,12 @@ function ResourceStep({
 ========================================================= */
 
 function ReviewStep({
+  catalogue,
   form,
   previousStep,
   updateField,
   submitRequest,
+  submitting,
   error,
 }) {
   const selectedSeries = catalogue.find(
@@ -1772,31 +1737,6 @@ function ReviewStep({
           </span>
         </div>
 
-        <div className="form-field full">
-          <label htmlFor="contact-otp">
-            Contact verification code
-          </label>
-
-          <input
-            id="contact-otp"
-            value={form.contactOtp}
-            inputMode="numeric"
-            maxLength="6"
-            placeholder="6-digit code"
-            onChange={(event) =>
-              updateField(
-                "contactOtp",
-                event.target.value,
-              )
-            }
-          />
-
-          <span className="field-help">
-            Local prototype code:{" "}
-            <strong>246810</strong>
-          </span>
-        </div>
-
         <label className="checkbox-row full">
           <input
             type="checkbox"
@@ -1860,8 +1800,9 @@ function ReviewStep({
         <button
           className="button green"
           type="submit"
+          disabled={submitting}
         >
-          Verify and Submit Request
+          {submitting ? "Submitting..." : "Submit Request"}
         </button>
       </div>
     </form>
@@ -1874,6 +1815,7 @@ function ReviewStep({
 
 function DigitalResourceRequestPage() {
   const { user } = useAuth();
+  const { catalogue, loading: catalogueLoading, error: catalogueError } = useCatalogue();
 
   const [step, setStep] = useState(1);
 
@@ -1885,6 +1827,8 @@ function DigitalResourceRequestPage() {
 
   const [completed, setCompleted] =
     useState(null);
+  const [submitting, setSubmitting] =
+    useState(false);
 
   function updateField(name, value) {
     setForm((current) => ({
@@ -1919,7 +1863,7 @@ function DigitalResourceRequestPage() {
     });
   }
 
-  function submitRequest() {
+  async function submitRequest() {
     if (!form.purpose) {
       setError(
         "Choose the purpose of this resource request.",
@@ -1933,14 +1877,6 @@ function DigitalResourceRequestPage() {
     ) {
       setError(
         "Provide at least 20 meaningful characters explaining how the resource will be used.",
-      );
-
-      return;
-    }
-
-    if (form.contactOtp !== DEMO_OTP) {
-      setError(
-        "The contact verification code is invalid.",
       );
 
       return;
@@ -1962,11 +1898,18 @@ function DigitalResourceRequestPage() {
       return;
     }
 
-    setCompleted({
-      reference: `DLR-${new Date().getFullYear()}-${String(
-        Date.now(),
-      ).slice(-6)}`,
-    });
+    setSubmitting(true);
+    setError("");
+    try {
+      setCompleted(
+        await ecommerceService.createDigitalResourceRequest(form),
+      );
+    } catch (requestError) {
+      setError(requestError.message);
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
 
     window.scrollTo({
       top: 0,
@@ -2062,6 +2005,9 @@ function DigitalResourceRequestPage() {
 
             {step === 3 && (
               <CatalogueStep
+                catalogue={catalogue}
+                catalogueLoading={catalogueLoading}
+                catalogueError={catalogueError}
                 form={form}
                 updateField={updateField}
                 previousStep={previousStep}
@@ -2073,6 +2019,7 @@ function DigitalResourceRequestPage() {
 
             {step === 4 && (
               <ResourceStep
+                catalogue={catalogue}
                 form={form}
                 updateField={updateField}
                 previousStep={previousStep}
@@ -2084,10 +2031,12 @@ function DigitalResourceRequestPage() {
 
             {step === 5 && (
               <ReviewStep
+                catalogue={catalogue}
                 form={form}
                 previousStep={previousStep}
                 updateField={updateField}
                 submitRequest={submitRequest}
+                submitting={submitting}
                 error={error}
               />
             )}

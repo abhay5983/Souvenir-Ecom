@@ -214,6 +214,8 @@ function HelpPage() {
     event.preventDefault();
   };
 
+  const quickTopics = ["Orders", "Returns", "Digital resources", "Book issue"];
+
   return (
     <>
       {/* =====================================================
@@ -315,6 +317,12 @@ function HelpPage() {
           <div id="help-search-results">
             <HelpSearchResults query={searchQuery} />
           </div>
+
+          <div className="help-quick-topics" aria-label="Popular help topics">
+            <span>Popular:</span>
+            {quickTopics.map((topic) => <button key={topic} type="button" onClick={() => setSearchQuery(topic)}>{topic}</button>)}
+            {searchQuery && <button className="help-clear-search" type="button" onClick={() => setSearchQuery("")}>Clear search</button>}
+          </div>
         </div>
       </section>
 
@@ -337,7 +345,7 @@ function HelpPage() {
 
               <p>
                 Find clear information about Souvenir
-                products, services and partner processes
+                products, delivery, digital access and ordering
                 before submitting an enquiry.
               </p>
             </div>
@@ -456,8 +464,8 @@ function HelpPage() {
 
               <p>
                 Use the General Enquiry form and choose the
-                closest topic. Never send a password,
-                one-time code or private activation token.
+                closest topic. Never send a password, OTP,
+                or complete payment-card details.
               </p>
             </div>
 

@@ -16,7 +16,7 @@ function TrackOrderPage() {
     <div className="form-field"><label>Order number</label><input value={form.orderNumber} onChange={(event) => setForm((current) => ({ ...current, orderNumber: event.target.value }))} required /></div>
     <div className="form-field"><label>Mobile number</label><input type="tel" value={form.mobile} onChange={(event) => setForm((current) => ({ ...current, mobile: event.target.value }))} required /></div>
     <button className="button" type="submit">Track order</button>
-  </form>{result && <aside className="summary-card"><p className="eyebrow">{result.orderNumber}</p><h2>{result.orderStatus.replaceAll("_", " ")}</h2><dl className="detail-meta"><div><dt>Payment</dt><dd>{result.paymentStatus.replaceAll("_", " ")}</dd></div><div><dt>Shipment</dt><dd>{result.shipmentStatus.replaceAll("_", " ")}</dd></div><div><dt>Total</dt><dd>₹{result.total.toLocaleString("en-IN")}</dd></div></dl></aside>}</div></div></section>;
+  </form>{result && <aside className="summary-card"><p className="eyebrow">{result.orderNumber}</p><h2>{result.orderStatus.replaceAll("_", " ")}</h2><dl className="detail-meta"><div><dt>Payment</dt><dd>{result.paymentStatus.replaceAll("_", " ")}</dd></div><div><dt>Shipment</dt><dd>{result.shipmentStatus.replaceAll("_", " ")}</dd></div><div><dt>Delivery</dt><dd>{result.deliveryLabel} · {result.deliveryTimeline}</dd></div><div><dt>Total</dt><dd>₹{result.total.toLocaleString("en-IN")}</dd></div></dl></aside>}</div></div></section>;
 }
 
 export default TrackOrderPage;

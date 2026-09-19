@@ -10,13 +10,13 @@ import {
   useParams,
 } from "react-router-dom";
 
-import { catalogue } from "../data/catalog.js";
+import { useCatalogue } from "../context/CatalogueContext.jsx";
 
 import {
   outreachFormBySlug,
-  outreachSubmissionService,
   validateOutreachDraft,
 } from "../services/help-centre.js";
+import { requestHubService } from "../services/requestHubService.js";
 
 const STEP_GROUPS = {
   1: "ABOUT",
@@ -47,6 +47,7 @@ function createInitialValues(definition) {
 function formatReviewValue(
   key,
   rawValue,
+  catalogue,
 ) {
   if (rawValue === true) {
     return "Confirmed";
@@ -129,9 +130,9 @@ function ProgressSteps({
   );
 }
 
-function OutreachFormPage() {
-  const { formSlug } = useParams();
+function OutreachFormContent({ formSlug }) {
   const navigate = useNavigate();
+  const { catalogue, loading: catalogueLoading } = useCatalogue();
 
   const definition =
     outreachFormBySlug(formSlug);
@@ -160,14 +161,6 @@ function OutreachFormPage() {
 
   const [result, setResult] =
     useState(null);
-
-  useEffect(() => {
-    setStep(1);
-    setValues(initialValues);
-    setFiles([]);
-    setErrors([]);
-    setResult(null);
-  }, [formSlug, initialValues]);
 
   useEffect(() => {
     window.scrollTo({
@@ -244,13 +237,6 @@ function OutreachFormPage() {
   }
 
   function validateCurrentStep() {
-    const stepFieldNames =
-      new Set(
-        currentFields.map(
-          (field) => field.name,
-        ),
-      );
-
     const draft = {
       formType: definition.type,
       values,
@@ -266,27 +252,9 @@ function OutreachFormPage() {
     };
 
     const validationErrors =
-      validateOutreachDraft(
-        draft,
-      ).filter((message) => {
-        if (step === 4) {
-          return true;
-        }
-
-        const relatedField =
-          currentFields.find(
-            (field) =>
-              message.startsWith(
-                field.label,
-              ),
-          );
-
-        return (
-          !relatedField ||
-          stepFieldNames.has(
-            relatedField.name,
-          )
-        );
+      validateOutreachDraft(draft, step === 4 ? {} : {
+        fieldNames: currentFields.map((field) => field.name),
+        validateFiles: step === 3,
       });
 
     setErrors(validationErrors);
@@ -316,7 +284,7 @@ function OutreachFormPage() {
     );
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
 
     const draft = {
@@ -341,28 +309,11 @@ function OutreachFormPage() {
       return;
     }
 
-    const idempotencyKey =
-      `outreach-${definition.slug}-${crypto.randomUUID()}`;
-
-    const submission =
-      outreachSubmissionService.submit(
-        draft,
-        idempotencyKey,
-      );
-
-    if (
-      !submission.ok ||
-      !submission.value
-    ) {
-      setErrors([
-        submission.error?.message ??
-          "The submission could not be accepted.",
-      ]);
-
-      return;
+    try {
+      setResult(await requestHubService.submitOutreach(draft));
+    } catch (requestError) {
+      setErrors([requestError.message]);
     }
-
-    setResult(submission.value);
   }
 
   function resetForm() {
@@ -419,16 +370,7 @@ function OutreachFormPage() {
               </p>
             </div>
 
-            <div className="notice warning">
-              <strong>
-                Prototype boundary:
-              </strong>{" "}
-              this frontend stores the record
-              only in the current browser
-              session. Production storage,
-              email and attachment scanning
-              require backend providers.
-            </div>
+            <div className="notice success">Your request has been securely recorded for review by the appropriate Souvenir team.</div>
 
             <div className="actions-row actions-center">
               <Link
@@ -569,6 +511,8 @@ function OutreachFormPage() {
                           selectedFiles={
                             files
                           }
+                          catalogue={catalogue}
+                          catalogueLoading={catalogueLoading}
                         />
                       ),
                     )}
@@ -600,6 +544,7 @@ function OutreachFormPage() {
                   }
                   values={values}
                   files={files}
+                  catalogue={catalogue}
                 />
               )}
 
@@ -702,6 +647,8 @@ function DynamicOutreachField({
   onChange,
   onFilesChange,
   selectedFiles,
+  catalogue,
+  catalogueLoading,
 }) {
   const fieldId =
     `outreach-${field.name}`;
@@ -710,12 +657,14 @@ function DynamicOutreachField({
     getFieldOptions(
       field,
       values,
+      catalogue,
     );
 
   const disabled =
     isFieldDisabled(
       field,
       values,
+      catalogueLoading,
     );
 
   const hidden =
@@ -743,7 +692,7 @@ function DynamicOutreachField({
           }
         />
 
-        <span>{field.label}</span>
+        <span>{field.label}{field.required && <span aria-hidden="true"> *</span>}</span>
       </label>
     );
   }
@@ -752,7 +701,7 @@ function DynamicOutreachField({
     return (
       <div className="form-field full outreach-upload">
         <label htmlFor={fieldId}>
-          {field.label}
+          {field.label}{field.required ? <span aria-hidden="true"> *</span> : <span className="field-help"> Optional</span>}
         </label>
 
         <input
@@ -795,7 +744,7 @@ function DynamicOutreachField({
     return (
       <div className="form-field full">
         <label htmlFor={fieldId}>
-          {field.label}
+          {field.label}{field.required ? <span aria-hidden="true"> *</span> : <span className="field-help"> Optional</span>}
         </label>
 
         <textarea
@@ -827,7 +776,7 @@ function DynamicOutreachField({
     return (
       <div className="form-field">
         <label htmlFor={fieldId}>
-          {field.label}
+          {field.label}{field.required ? <span aria-hidden="true"> *</span> : <span className="field-help"> Optional</span>}
         </label>
 
         <select
@@ -840,6 +789,7 @@ function DynamicOutreachField({
               field,
               event.target.value,
               onChange,
+              catalogue,
             )
           }
         >
@@ -873,7 +823,7 @@ function DynamicOutreachField({
   return (
     <div className="form-field">
       <label htmlFor={fieldId}>
-        {field.label}
+        {field.label}{field.required ? <span aria-hidden="true"> *</span> : <span className="field-help"> Optional</span>}
       </label>
 
       <input
@@ -900,12 +850,17 @@ function DynamicOutreachField({
               ? "tel"
               : undefined
         }
-        onChange={(event) =>
-          onChange(
-            field.name,
-            event.target.value,
-          )
-        }
+        min={field.kind === "number" ? 1 : undefined}
+        autoComplete={field.name === "fullName" ? "name" : field.name === "email" ? "email" : field.kind === "tel" ? "tel" : field.name === "pincode" ? "postal-code" : undefined}
+        onChange={(event) => {
+          const raw = event.target.value;
+          const normalized = field.kind === "tel"
+            ? raw.replace(/\D/g, "").slice(0, 10)
+            : field.name === "pincode"
+              ? raw.replace(/\D/g, "").slice(0, 6)
+              : raw;
+          onChange(field.name, normalized);
+        }}
       />
 
       {field.help && (
@@ -920,6 +875,7 @@ function DynamicOutreachField({
 function getFieldOptions(
   field,
   values,
+  catalogue,
 ) {
   if (field.name === "subject") {
     return Array.from(
@@ -983,7 +939,7 @@ function getFieldOptions(
       );
 
     return [
-      ...(series?.variants ?? []).map(
+      ...(series?.variants ?? []).filter((variant) => !values.classId || variant.id === values.classId).map(
         (variant) => ({
           value: variant.id,
           label: variant.title,
@@ -1007,7 +963,9 @@ function getFieldOptions(
 function isFieldDisabled(
   field,
   values,
+  catalogueLoading,
 ) {
+  if (["subject", "seriesId", "classId", "bookId"].includes(field.name) && catalogueLoading) return true;
   if (field.name === "seriesId") {
     return !values.subject;
   }
@@ -1027,6 +985,7 @@ function handleSelectChange(
   field,
   selectedValue,
   onChange,
+  catalogue,
 ) {
   onChange(
     field.name,
@@ -1049,9 +1008,10 @@ function handleSelectChange(
   }
 
   if (field.name === "classId") {
-    onChange("bookId", "");
+    onChange("bookId", selectedValue);
     onChange("manualBook", "");
-    onChange("isbn", "");
+    const variant = catalogue.flatMap((series) => series.variants ?? []).find((item) => item.id === selectedValue);
+    onChange("isbn", variant?.isbn ?? "");
   }
 
   if (field.name === "bookId") {
@@ -1078,6 +1038,7 @@ function OutreachReview({
   definition,
   values,
   files,
+  catalogue,
 }) {
   const labels = new Map(
     definition.fields.map(
@@ -1121,6 +1082,7 @@ function OutreachReview({
                 {formatReviewValue(
                   key,
                   rawValue,
+                  catalogue,
                 )}
               </dd>
             </div>
@@ -1170,6 +1132,11 @@ function OutreachReview({
       </div>
     </div>
   );
+}
+
+function OutreachFormPage() {
+  const { formSlug } = useParams();
+  return <OutreachFormContent key={formSlug} formSlug={formSlug} />;
 }
 
 export default OutreachFormPage;

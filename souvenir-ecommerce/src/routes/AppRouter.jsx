@@ -6,6 +6,7 @@ import {
 
 import PublicLayout from "../components/layout/PublicLayout.jsx";
 import PortalLayout from "../components/layout/PortalLayout.jsx";
+import ScrollToTop from "../components/common/ScrollToTop.jsx";
 
 import ProtectedRoute from "./ProtectedRoute.jsx";
 
@@ -21,10 +22,10 @@ import TrackOrderPage from "../pages/TrackOrderPage.jsx";
 import DigitalLearningPage from "../pages/DigitalLearningPage.jsx";
 import OutreachFormPage from "../pages/OutreachFormPage.jsx";
 import HelpGuidePage from "../pages/HelpGuidePage.jsx";
+import PolicyPage from "../pages/PolicyPage.jsx";
 
 import RoleDashboardPage from "../pages/RoleDashboardPage.jsx";
 
-import AdminDashboardPage from "../pages/dashboards/AdminDashboardPage.jsx";
 // import SalesDashboardPage from "../pages/dashboards/SalesDashboardPage.jsx";
 
 import AccountPage from "../pages/portal/AccountPage.jsx";
@@ -34,8 +35,6 @@ import ControlAccountsPage from "../pages/control/ControlAccountsPage.jsx";
 import ControlOrdersPage from "../pages/control/ControlOrdersPage.jsx";
 import ControlApprovalsPage from "../pages/control/ControlApprovalsPage.jsx";
 import ControlStockPage from "../pages/control/ControlStockPage.jsx";
-import ControlInventoryPage from "../pages/control/ControlInventoryPage.jsx";
-import ControlDispatchPage from "../pages/control/ControlDispatchPage.jsx";
 import ControlAuditPage from "../pages/control/ControlAuditPage.jsx";
 import PartnerOnboardingPage from "../pages/control/PartnerOnboardingPage.jsx";
 import NewPartnerImportPage from "../pages/control/NewPartnerImportPage.jsx";
@@ -43,20 +42,17 @@ import NewPartnerImportPage from "../pages/control/NewPartnerImportPage.jsx";
 import ControlRecordDetailPage from "../components/control/ControlRecordDetailPage.jsx";
 
 
-import DispatchDashboardPage from "../pages/dashboards/DispatchDashboardPage.jsx";
 import DispatchRecordPage from "../pages/control/DispatchRecordPage.jsx";
 
-import InventoryFulfilmentPage from "../pages/control/InventoryFulfilmentPage.jsx";
-import InventoryPackingPage from "../pages/control/InventoryPackingPage.jsx";
-
-import ActivatePartnerKeyPage from "../pages/ActivatePartnerKeyPage.jsx";
 import ControlAccessPage from "../pages/ControlAccessPage.jsx";
 import WorkflowDashboardPage from "../pages/WorkflowDashboardPage.jsx";
 import WorkflowRequestDetailPage from "../pages/WorkflowRequestDetailPage.jsx";
+import RequestHubPage from "../pages/RequestHubPage.jsx";
 
 function AppRouter() {
     return (
         <BrowserRouter>
+            <ScrollToTop />
             <Routes>
                 {/* Public website */}
                 <Route element={<PublicLayout />}>
@@ -125,24 +121,11 @@ function AppRouter() {
                         element={<LoginPage />}
                     />
 
+                    <Route path="/return-policy" element={<PolicyPage policy="returns" />} />
+                    <Route path="/privacy" element={<PolicyPage policy="privacy" />} />
+                    <Route path="/terms" element={<PolicyPage policy="terms" />} />
 
-
-                    <Route
-                        path="/activate"
-                        element={
-                            <ActivatePartnerKeyPage />
-                        }
-                    />
-
-                    {/* <Route
-                        path="/activate-account"
-                        element={
-                            <Navigate
-                                to="/activate"
-                                replace
-                            />
-                        }
-                    /> */}
+                    <Route path="/requests-dashboard" element={<RequestHubPage />} />
 
                     <Route
                         path="/control-access"

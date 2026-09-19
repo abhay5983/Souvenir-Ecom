@@ -29,7 +29,7 @@ function HomePage() {
               media="(max-width: 900px)"
               type="image/webp"
               srcSet="
-                /assets/souvenir-classroom-hero-960.jpg 960w,
+                /assets/souvenir-classroom-hero-960.png 960w,
                 /assets/souvenir-classroom-hero-1672.jpg 1672w
               "
               sizes="100vw"
@@ -164,9 +164,9 @@ function HomePage() {
               <h3>Account-aware service</h3>
 
               <p>
-                Schools and distributors build one cart,
-                verify their partner key and choose an order
-                or sample request before HQ approval.
+                Schools, families and distributors can explore
+                the catalogue, choose books and continue through
+                a clear, guided ordering journey.
               </p>
             </article>
           </div>

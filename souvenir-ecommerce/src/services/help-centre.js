@@ -57,6 +57,7 @@ function field(
 
 function contactFields(
   organisationLabel = "School or organisation",
+  organisationRequired = false,
 ) {
   return [
     field(
@@ -64,7 +65,7 @@ function contactFields(
       "Full name",
       "text",
       "ABOUT",
-      true,
+      organisationRequired,
     ),
     field(
       "organisationName",
@@ -146,7 +147,7 @@ function catalogueFields() {
     field(
       "seriesId",
       "Series",
-      "text",
+      "select",
       "CONTEXT",
       false,
       {
@@ -157,16 +158,24 @@ function catalogueFields() {
     field(
       "classId",
       "Class or level",
-      "text",
+      "select",
       "CONTEXT",
       false,
     ),
     field(
       "bookId",
       "Book title",
+      "select",
+      "CONTEXT",
+      false,
+    ),
+    field(
+      "manualBook",
+      "Book title or identifying details",
       "text",
       "CONTEXT",
       false,
+      { placeholder: "Enter the book title, class and edition" },
     ),
     field(
       "edition",
@@ -231,15 +240,15 @@ export const helpGuides = [
   {
     slug: "place-sales-order",
     category: "Orders",
-    title: "How to place a sales order",
+    title: "How to order books online",
     summary:
-      "Understand how verified schools and distributors can prepare and submit an order request.",
+      "Add books to your cart, select delivery and complete guest checkout without creating an account.",
     estimatedReadMinutes: 4,
     lastReviewedAt: "July 2026",
     body: [
-      "Commercial ordering is available only within an authorised school, bookseller or distributor account.",
-      "Select the required book variants, enter commercial quantities and review the cart before checkout.",
-      "An order submission is not immediate confirmation. Partner verification, availability, commercial review and fulfilment controls still apply.",
+      "Open a series, choose the required book and quantity, then add it to your cart.",
+      "Review the cart and choose Standard delivery (6–8 working days) or Priority delivery (2–3 working days). No account or login is required for checkout.",
+      "Enter accurate contact and delivery details, complete payment and save the order number for tracking.",
     ],
     relatedFormSlugs: [
       "order-discrepancy",
@@ -286,23 +295,20 @@ export const helpGuides = [
     relatedGuideSlugs: [],
   },
   {
-    slug: "activate-partner-key",
-    category: "Partner Access",
-    title: "How to activate a PartnerKey",
+    slug: "track-book-order",
+    category: "Orders",
+    title: "How to track your book order",
     summary:
-      "Learn how an invited school, bookseller or distributor activates its Souvenir access.",
-    estimatedReadMinutes: 4,
-    lastReviewedAt: "July 2026",
+      "Check an order using the order number and mobile number entered during checkout.",
+    estimatedReadMinutes: 2,
+    lastReviewedAt: "September 2026",
     body: [
-      "A Souvenir PartnerKey identifies an approved organisation. It is not a password.",
-      "Activation combines the PartnerKey, registered contact information and secure verification.",
-      "Never enter passwords or one-time codes inside a public support form.",
+      "Open Track Order from the website and enter the order number shown after checkout.",
+      "Enter the same 10-digit mobile number used for the order. Both details must match for privacy and security.",
+      "The tracking page shows payment, shipment and delivery information. Use the Order or Delivery Issue form if the details appear incorrect.",
     ],
-    relatedFormSlugs: [
-      "general-enquiry",
-      "business-partnership",
-    ],
-    relatedGuideSlugs: [],
+    relatedFormSlugs: ["order-discrepancy"],
+    relatedGuideSlugs: ["place-sales-order"],
   },
   {
     slug: "report-book-issue",
@@ -342,28 +348,28 @@ export const helpFaqs = [
     question:
       "Can students request teacher resources?",
     answer:
-      "No. Restricted teacher tools are available only to verified educators and institutions.",
+      "No. Students can unlock student resources using the book ISBN. Teacher resources require the ISBN and the matching teacher-access password.",
   },
   {
     id: "order-confirmation",
     question:
       "Does submitting an order mean it is confirmed?",
     answer:
-      "No. Orders require partner verification, availability checks and approval from Souvenir HQ.",
+      "An order is confirmed after successful payment and stock validation. Keep the order number shown after checkout for tracking.",
   },
   {
     id: "individual-buying",
     question:
       "Can I buy books directly as an individual customer?",
     answer:
-      "The current platform is designed for schools, booksellers, distributors and approved institutional partners.",
+      "Yes. Individual customers can add books to the cart and use guest checkout without creating an account.",
   },
   {
     id: "digital-delivery",
     question:
       "How are digital resources delivered?",
     answer:
-      "Delivery depends on the resource type, requester role, series, class, verification and licence conditions.",
+      "Choose the book in Digital Learning and enter its ISBN. Teachers enter the ISBN again as the teacher-access password.",
   },
   {
     id: "editorial-feedback",
@@ -371,6 +377,12 @@ export const helpFaqs = [
       "Can I submit editorial feedback?",
     answer:
       "Yes. Use the Teacher and Editorial Feedback form and provide the book, class, page and issue details.",
+  },
+  {
+    id: "returns",
+    question: "How do I request a return or replacement?",
+    answer:
+      "Report a damaged, defective or incorrect book within 7 calendar days of delivery using the Order or Delivery Issue form. Keep the invoice, packaging and clear photographs of the issue.",
   },
 ];
 
@@ -454,7 +466,7 @@ export const outreachForms = [
       "Clear image of the affected page where possible",
     ],
     fields: [
-      ...contactFields("School name"),
+      ...contactFields("School name", true),
       field(
         "designation",
         "Designation",
@@ -540,7 +552,7 @@ export const outreachForms = [
       "Purpose of evaluation",
     ],
     fields: [
-      ...contactFields("School or organisation"),
+      ...contactFields("School or organisation", true),
       field(
         "designation",
         "Designation",
@@ -588,7 +600,7 @@ export const outreachForms = [
     category: "Orders",
     title: "Order or Delivery Issue",
     summary:
-      "Report missing, incorrect, damaged or delayed books from an institutional order.",
+      "Report missing, incorrect, damaged or delayed books from an online order.",
     cta: "Report an issue",
     icon: "package-alert",
     featured: true,
@@ -832,7 +844,7 @@ export const outreachForms = [
       "Preferred meeting format",
     ],
     fields: [
-      ...contactFields("School name"),
+      ...contactFields("School name", true),
       field(
         "designation",
         "Designation",
@@ -1310,7 +1322,7 @@ function validateFile(file) {
   return null;
 }
 
-export function validateOutreachDraft(draft) {
+export function validateOutreachDraft(draft, options = {}) {
   const definition = outreachForms.find(
     (form) =>
       form.type === draft.formType,
@@ -1324,6 +1336,9 @@ export function validateOutreachDraft(draft) {
 
   const errors = [];
   const values = draft.values ?? {};
+  const fieldsToValidate = options.fieldNames
+    ? new Set(options.fieldNames)
+    : null;
 
   if (draft.honeypot) {
     errors.push(
@@ -1332,6 +1347,7 @@ export function validateOutreachDraft(draft) {
   }
 
   for (const currentField of definition.fields ?? []) {
+    if (fieldsToValidate && !fieldsToValidate.has(currentField.name)) continue;
     const value =
       values[currentField.name];
 
@@ -1392,9 +1408,38 @@ export function validateOutreachDraft(draft) {
         `${currentField.label} is too long.`,
       );
     }
+
+    if (currentField.kind === "url" && !isEmpty) {
+      try {
+        const parsed = new URL(String(value).trim());
+        if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("Invalid protocol");
+      } catch {
+        errors.push(`${currentField.label} must be a valid website URL.`);
+      }
+    }
+
+    if (currentField.kind === "number" && !isEmpty && (!Number.isInteger(Number(value)) || Number(value) < 1)) {
+      errors.push(`${currentField.label} must be a whole number greater than zero.`);
+    }
+
+    if (currentField.name === "isbn" && !isEmpty) {
+      const isbn = String(value).replace(/[\s-]/g, "").toUpperCase();
+      const validIsbn = /^\d{13}$/.test(isbn) || /^\d{9}[\dX]$/.test(isbn);
+      if (!validIsbn) errors.push(`${currentField.label} must be a valid ISBN-10 or ISBN-13.`);
+    }
+
+    if (currentField.kind === "select" && !isEmpty && currentField.options?.length && !currentField.options.includes(value)) {
+      errors.push(`${currentField.label} contains an invalid selection.`);
+    }
+  }
+
+  if ((!fieldsToValidate || fieldsToValidate.has("manualBook")) && values.bookId === "BOOK_NOT_FOUND" && !String(values.manualBook ?? "").trim()) {
+    errors.push("Book title or identifying details is required when the book is not listed.");
   }
 
   const files = draft.files ?? [];
+
+  if (options.validateFiles === false) return Array.from(new Set(errors));
 
   const totalSize = files.reduce(
     (total, file) =>
@@ -1408,8 +1453,15 @@ export function validateOutreachDraft(draft) {
     );
   }
 
+  const evidence = definition.fields.find((item) => item.kind === "file");
+  const acceptedExtensions = String(evidence?.accept ?? ".jpg,.jpeg,.png,.pdf")
+    .split(",").map((item) => item.trim().replace(/^\./, "").toLowerCase()).filter(Boolean);
+
   files.forEach((file) => {
-    const error = validateFile(file);
+    const extension = String(file.name ?? "").toLowerCase().split(".").at(-1) ?? "";
+    const error = acceptedExtensions.includes(extension)
+      ? validateFile(file)
+      : `${file.name}: file type is not allowed for this form.`;
 
     if (error) {
       errors.push(error);

@@ -29,12 +29,18 @@ function VariantPurchaseRow({
 
   return (
     <article className="variant-purchase-row">
-      <div
-        className={`variant-thumbnail ${series.coverTone}`}
-        aria-hidden="true"
-      >
-        <span>{index + 1}</span>
-      </div>
+      {variant.coverImageUrl ? (
+        <img
+          className="variant-thumbnail variant-cover-image"
+          src={variant.coverImageUrl}
+          alt={`${variant.title} cover`}
+          loading="lazy"
+        />
+      ) : (
+        <div className={`variant-thumbnail ${series.coverTone}`} aria-hidden="true">
+          <span>{index + 1}</span>
+        </div>
+      )}
 
       <div className="variant-copy">
         <h3>{variant.title}</h3>

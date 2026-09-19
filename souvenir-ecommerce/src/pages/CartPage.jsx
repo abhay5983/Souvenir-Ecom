@@ -6,6 +6,7 @@ import {
 
 import { useCatalogue } from "../context/CatalogueContext.jsx";
 import { useCart } from "../context/CartContext";
+import { DELIVERY_OPTIONS, getDeliveryOption } from "../services/deliveryOptions.js";
 
 function formatInr(value) {
   return `₹${Number(value).toLocaleString(
@@ -42,6 +43,7 @@ function getCartItemDetails(item, catalogue) {
       typeof variant?.priceINR === "number"
         ? variant.priceINR
         : undefined,
+    coverImageUrl: variant?.coverImageUrl,
   };
 }
 
@@ -56,6 +58,8 @@ function CartPage() {
   updateQuantity,
   removeFromCart,
   clearCart,
+  deliveryOption,
+  setDeliveryOption,
 } = useCart();
 
 const cartItems = cart ?? [];
@@ -99,6 +103,8 @@ const cartItems = cart ?? [];
       );
     },
   ).length;
+  const selectedDelivery = getDeliveryOption(deliveryOption);
+  const orderTotal = pricedTotal + selectedDelivery.charge;
 
   function handleClearCart() {
     clearCart();
@@ -205,6 +211,10 @@ const cartItems = cart ?? [];
           </span>
         </div>
 
+        <div className="notice neutral" role="note">
+          <strong>Coming soon:</strong> Direct-to-customer delivery will start soon.
+        </div>
+
         <div className="cart-layout">
           <section
             className="cart-panel card"
@@ -231,12 +241,11 @@ const cartItems = cart ?? [];
                     className="cart-line"
                     key={item.id}
                   >
-                    <div
-                      className={`variant-thumbnail ${details.series.coverTone}`}
-                      aria-hidden="true"
-                    >
-                      <span>▣</span>
-                    </div>
+                    {details.coverImageUrl ? (
+                    <img className="variant-thumbnail variant-cover-image" src={details.coverImageUrl} alt={`${details.title} cover`} loading="lazy" />
+                    ) : (
+                      <div className={`variant-thumbnail ${details.series.coverTone}`} aria-hidden="true"><span>▣</span></div>
+                    )}
 
                     <div className="cart-line-copy">
                       <h3>{details.title}</h3>
@@ -380,7 +389,36 @@ const cartItems = cart ?? [];
                 <dt>Books subtotal</dt>
                 <dd>{formatInr(pricedTotal)}</dd>
               </div>
+              <div>
+                <dt>{selectedDelivery.label}</dt>
+                <dd>{formatInr(selectedDelivery.charge)}</dd>
+              </div>
+              <div className="cart-grand-total">
+                <dt>Order total</dt>
+                <dd>{formatInr(orderTotal)}</dd>
+              </div>
             </dl>
+
+            <fieldset className="delivery-options">
+              <legend>Choose delivery speed</legend>
+              {Object.values(DELIVERY_OPTIONS).map((option) => (
+                <label className={`delivery-option${deliveryOption === option.code ? " selected" : ""}`} key={option.code}>
+                  <input
+                    type="radio"
+                    name="deliveryOption"
+                    value={option.code}
+                    checked={deliveryOption === option.code}
+                    onChange={() => setDeliveryOption(option.code)}
+                  />
+                  <span><strong>{option.label}</strong><small>{option.timeline}</small></span>
+                  <b>{formatInr(option.charge)}</b>
+                </label>
+              ))}
+            </fieldset>
+
+            <p className="delivery-note">
+              Delivery timelines are counted in working days and begin after payment confirmation and order processing.
+            </p>
 
             <div className="notice warning">
               <strong>
@@ -406,7 +444,7 @@ const cartItems = cart ?? [];
         </div>
 
         <div className="mobile-cart-bar" aria-label="Cart checkout summary">
-          <span><small>Subtotal</small><strong>{formatInr(pricedTotal)}</strong></span>
+          <span><small>Total with delivery</small><strong>{formatInr(orderTotal)}</strong></span>
           <Link className="button" to="/checkout">Checkout</Link>
         </div>
       </div>

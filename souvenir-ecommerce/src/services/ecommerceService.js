@@ -15,6 +15,10 @@ async function request(path, options = {}) {
 
 export const ecommerceService = {
   catalogue: () => request("/catalogue"),
+  studentResources: () => request("/digital-resources/student"),
+  studentResourceAccess: (bookIsbn, isbn) => request("/digital-resources/student/access", { method: "POST", body: { book_isbn: bookIsbn, isbn } }),
+  teacherResource: (isbn, password) => request("/digital-resources/teacher", { method: "POST", body: { isbn, password } }),
+  createDigitalResourceRequest: (details) => request("/digital-resource-requests", { method: "POST", body: details }),
   createOrder: (order) => request("/orders", { method: "POST", body: order }),
   trackOrder: (details) => request("/orders/track", { method: "POST", body: details }),
   shippingQuote: (details) => request("/shipping/serviceability", { method: "POST", body: details }),

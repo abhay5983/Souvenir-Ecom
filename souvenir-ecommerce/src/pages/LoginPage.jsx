@@ -246,13 +246,6 @@ function LoginPage() {
             </details>
 
             <p className="auth-switch-link">
-              Received an invitation?{" "}
-              <Link to="/activate">
-                Activate PartnerKey
-              </Link>
-
-              <br />
-
               Souvenir staff?{" "}
               <Link to="/control-access">
                 Use Control Centre access

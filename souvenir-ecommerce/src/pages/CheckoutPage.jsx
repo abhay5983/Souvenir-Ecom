@@ -3,6 +3,7 @@ import { Link, Navigate } from "react-router-dom";
 import { useCatalogue } from "../context/CatalogueContext.jsx";
 import { useCart } from "../context/CartContext.jsx";
 import { ecommerceService } from "../services/ecommerceService.js";
+import { getDeliveryOption } from "../services/deliveryOptions.js";
 
 const CHECKOUT_STORAGE_KEY = "souvenir-guest-checkout";
 const IDEMPOTENCY_STORAGE_KEY = "souvenir-checkout-attempt";
@@ -66,7 +67,7 @@ function CheckoutField({ name, label, value, error, onChange, onBlur, type = "te
 
 function CheckoutPage() {
   const { catalogue, loading: catalogueLoading } = useCatalogue();
-  const { cart, clearCart } = useCart();
+  const { cart, clearCart, deliveryOption } = useCart();
   const [form, setForm] = useState(loadCheckoutForm);
   const [touched, setTouched] = useState({});
   const [order, setOrder] = useState(null);
@@ -80,7 +81,8 @@ function CheckoutPage() {
     [cart, catalogue],
   );
   const subtotal = items.reduce((sum, entry) => sum + entry.details.price * entry.item.quantity, 0);
-  const estimatedShipping = shippingQuote?.shippingCharge ?? (subtotal >= 1000 ? 0 : 75);
+  const selectedDelivery = getDeliveryOption(deliveryOption);
+  const estimatedShipping = shippingQuote?.shippingCharge ?? selectedDelivery.charge;
   const total = subtotal + estimatedShipping;
 
   useEffect(() => {
@@ -95,6 +97,7 @@ function CheckoutPage() {
       try {
         setShippingQuote(await ecommerceService.shippingQuote({
           postal_code: form.postalCode,
+          delivery_type: deliveryOption,
           lines: items.map(({ item }) => ({ product_id: item.variantId, quantity: item.quantity })),
         }));
       } catch (requestError) {
@@ -104,7 +107,7 @@ function CheckoutPage() {
       }
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [form.postalCode, items]);
+  }, [deliveryOption, form.postalCode, items]);
 
   if (catalogueLoading) return <section className="section compact"><div className="container"><div className="notice neutral">Loading checkout...</div></div></section>;
   if (!items.length && !order) return <Navigate to="/cart" replace />;
@@ -153,6 +156,7 @@ function CheckoutPage() {
           line1: form.line1.trim(), line2: form.line2.trim(), landmark: form.landmark.trim(),
           city: form.city.trim(), state: form.state.trim(), postal_code: form.postalCode, country: form.country,
         },
+        delivery_type: deliveryOption,
         lines: items.map(({ item }) => ({ product_id: item.variantId, quantity: item.quantity })),
       });
       if (created.payment?.configured && created.payment?.checkoutUrl) {
@@ -177,7 +181,7 @@ function CheckoutPage() {
         <p className="eyebrow">Order received</p><h1>Thank you for your order</h1>
         <p>Your order number is <strong>{order.orderNumber}</strong>.</p>
         <div className="notice neutral">Payment is pending. You can use your order number and mobile number to check its status.</div>
-        <dl className="success-summary"><div><dt>Order total</dt><dd>{money(order.total)}</dd></div><div><dt>Status</dt><dd>{order.orderStatus.replaceAll("_", " ")}</dd></div></dl>
+        <dl className="success-summary"><div><dt>Order total</dt><dd>{money(order.total)}</dd></div><div><dt>Delivery</dt><dd>{order.deliveryLabel} · {order.deliveryTimeline}</dd></div><div><dt>Status</dt><dd>{order.orderStatus.replaceAll("_", " ")}</dd></div></dl>
         <div className="actions-row"><Link className="button" to="/track-order">Track order</Link><Link className="button secondary" to="/books">Continue shopping</Link></div>
       </div></div></section>
     );
@@ -215,7 +219,7 @@ function CheckoutPage() {
         </form>
         <aside className="checkout-summary card"><p className="eyebrow">Order summary</p><h2>{items.reduce((sum, entry) => sum + entry.item.quantity, 0)} books</h2>
           <ul>{items.map(({ item, details }) => <li key={item.id}><span>{details.title} × {item.quantity}</span><strong>{money(details.price * item.quantity)}</strong></li>)}</ul>
-          <dl className="detail-meta"><div><dt>Subtotal</dt><dd>{money(subtotal)}</dd></div><div><dt>Delivery</dt><dd>{estimatedShipping ? money(estimatedShipping) : "Free"}</dd></div><div><dt>Total</dt><dd><strong>{money(total)}</strong></dd></div></dl>
+          <dl className="detail-meta"><div><dt>Subtotal</dt><dd>{money(subtotal)}</dd></div><div><dt>{selectedDelivery.label}</dt><dd>{money(estimatedShipping)}</dd></div><div><dt>Estimated time</dt><dd>{selectedDelivery.timeline}</dd></div><div><dt>Total</dt><dd><strong>{money(total)}</strong></dd></div></dl>
         </aside>
       </div>
     </div></section>

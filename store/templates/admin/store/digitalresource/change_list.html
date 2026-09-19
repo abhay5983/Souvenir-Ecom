@@ -1,0 +1,6 @@
+{% extends "admin/change_list.html" %}
+{% block object-tools-items %}
+  <li><a href="{% url 'admin:store_digitalresource_template' %}">Download resource template</a></li>
+  <li><a href="{% url 'admin:store_digitalresource_import' %}" class="addlink">Import resource links</a></li>
+  {{ block.super }}
+{% endblock %}

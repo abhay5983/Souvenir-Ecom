@@ -1,4 +1,6 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { ecommerceService } from "../services/ecommerceService.js";
 
 const digitalResources = [
   {
@@ -194,7 +196,170 @@ function FaqItem({ question, answer }) {
   );
 }
 
+function ResourceModal({ mode, onClose }) {
+  const teacherMode = mode === "teacher";
+  const [books, setBooks] = useState([]);
+  const [query, setQuery] = useState("");
+  const [subject, setSubject] = useState("All");
+  const [series, setSeries] = useState("All");
+  const [feature, setFeature] = useState("All");
+  const [sortBy, setSortBy] = useState("title");
+  const [isbn, setIsbn] = useState("");
+  const [teacherPassword, setTeacherPassword] = useState("");
+  const [selectedStudentBook, setSelectedStudentBook] = useState(null);
+  const [studentIsbn, setStudentIsbn] = useState("");
+  const [loading, setLoading] = useState(!teacherMode);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    function closeOnEscape(event) { if (event.key === "Escape") onClose(); }
+    document.body.classList.add("menu-open");
+    window.addEventListener("keydown", closeOnEscape);
+    if (!teacherMode) {
+      ecommerceService.studentResources()
+        .then((payload) => setBooks(payload.books ?? []))
+        .catch((requestError) => setError(requestError.message))
+        .finally(() => setLoading(false));
+    }
+    return () => {
+      document.body.classList.remove("menu-open");
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [onClose, teacherMode]);
+
+  const subjects = useMemo(() => [...new Set(books.map((book) => book.subject).filter(Boolean))].sort(), [books]);
+  const seriesOptions = useMemo(() => [...new Set(books.map((book) => book.series).filter(Boolean))].sort(), [books]);
+  const features = useMemo(() => [...new Set(books.flatMap((book) => book.digitalFeatures ?? []))].sort(), [books]);
+  const filteredBooks = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    const normalizedSearch = search.replace(/[\s-]/g, "");
+    return books.filter((book) => {
+      const matchesSubject = subject === "All" || book.subject === subject;
+      const matchesSeries = series === "All" || book.series === series;
+      const matchesFeature = feature === "All" || (book.digitalFeatures ?? []).includes(feature);
+      const matchesSearch = !search || [book.title, book.series, book.subject, book.isbn]
+        .some((value) => {
+          const candidate = String(value ?? "").toLowerCase();
+          return candidate.includes(search) || candidate.replace(/[\s-]/g, "").includes(normalizedSearch);
+        });
+      return matchesSubject && matchesSeries && matchesFeature && matchesSearch;
+    }).sort((left, right) => {
+      const compare = (first, second) => String(first ?? "").localeCompare(String(second ?? ""));
+      if (sortBy === "series") return compare(left.series, right.series) || compare(left.title, right.title);
+      if (sortBy === "subject") return compare(left.subject, right.subject) || compare(left.title, right.title);
+      return compare(left.title, right.title);
+    });
+  }, [books, feature, query, series, sortBy, subject]);
+
+  const filtersActive = Boolean(query || subject !== "All" || series !== "All" || feature !== "All");
+
+  function clearFilters() {
+    setQuery("");
+    setSubject("All");
+    setSeries("All");
+    setFeature("All");
+  }
+
+  async function openTeacherResource(event) {
+    event.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const result = await ecommerceService.teacherResource(isbn, teacherPassword);
+      window.location.assign(result.resourceUrl);
+    } catch (requestError) {
+      setError(requestError.message);
+      setLoading(false);
+    }
+  }
+
+  async function openStudentResource(event) {
+    event.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const result = await ecommerceService.studentResourceAccess(selectedStudentBook.isbn, studentIsbn);
+      window.location.assign(result.resourceUrl);
+    } catch (requestError) {
+      setError(requestError.message);
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="resource-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className={`resource-modal${teacherMode ? " teacher-resource-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="resource-modal-title">
+        <button className="resource-modal-close" type="button" aria-label="Close resource finder" onClick={onClose}>×</button>
+        <header className="resource-modal-header">
+          <p className="eyebrow">{teacherMode ? "Teacher access" : "Student resources"}</p>
+          <h2 id="resource-modal-title">{teacherMode ? "Find resources by ISBN" : "Find your book"}</h2>
+          <p>{teacherMode ? "Use the ISBN on your book to open its complete teacher resource collection." : "Search the catalogue or narrow the results using the filters below."}</p>
+        </header>
+        {teacherMode ? (
+          <form className="teacher-resource-form" onSubmit={openTeacherResource}>
+            <div className="teacher-isbn-guide" aria-hidden="true"><span>ISBN</span><i /></div>
+            {error && <div className="notice danger" role="alert">{error}</div>}
+            <div className="form-field">
+              <label htmlFor="teacher-isbn">Book ISBN</label>
+              <input id="teacher-isbn" value={isbn} onChange={(event) => { setIsbn(event.target.value); setError(""); }} inputMode="numeric" autoComplete="off" placeholder="For example, 9781234567890" aria-describedby="teacher-isbn-help" autoFocus required />
+              <small id="teacher-isbn-help">You’ll find the 10 or 13-digit ISBN above the barcode on the back cover.</small>
+            </div>
+            <div className="form-field">
+              <label htmlFor="teacher-password">Password</label>
+              <input id="teacher-password" type="password" value={teacherPassword} onChange={(event) => { setTeacherPassword(event.target.value); setError(""); }} inputMode="numeric" autoComplete="off" placeholder="Enter teacher password" required />
+            </div>
+            <button className="button green full-width" type="submit" disabled={loading}>{loading ? "Checking ISBN..." : "Explore teacher resources"}</button>
+          </form>
+        ) : (
+          <>
+            {selectedStudentBook ? (
+              <form className="student-resource-access teacher-resource-form" onSubmit={openStudentResource}>
+                <button className="text-link resource-back-button" type="button" onClick={() => { setSelectedStudentBook(null); setStudentIsbn(""); setError(""); }}>← Back to books</button>
+                <div className="student-access-book">
+                  {selectedStudentBook.coverPhotoLink ? <img src={selectedStudentBook.coverPhotoLink} alt="" /> : <div className="resource-cover-placeholder" aria-hidden="true">{selectedStudentBook.title.slice(0, 1)}</div>}
+                  <div><small>{selectedStudentBook.subject}</small><h3>{selectedStudentBook.title}</h3><p>{selectedStudentBook.series}</p></div>
+                </div>
+                <p>Enter the ISBN printed on this book to unlock its student resources.</p>
+                {error && <div className="notice danger" role="alert">{error}</div>}
+                <div className="form-field">
+                  <label htmlFor="student-isbn">Book ISBN</label>
+                  <input id="student-isbn" value={studentIsbn} onChange={(event) => { setStudentIsbn(event.target.value); setError(""); }} inputMode="numeric" autoComplete="off" placeholder="Enter ISBN-10 or ISBN-13" autoFocus required />
+                  <small>You’ll find it above the barcode on the back cover.</small>
+                </div>
+                <button className="button green full-width" type="submit" disabled={loading}>{loading ? "Checking ISBN..." : "Unlock student resources"}</button>
+              </form>
+            ) : (
+              <>
+                <div className="resource-search-field form-field">
+                  <label htmlFor="resource-search">Search the catalogue</label>
+                  <div className="resource-search-input">
+                    <input id="resource-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by book, series, subject or ISBN" autoFocus />
+                    {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search">×</button>}
+                  </div>
+                </div>
+                <div className="resource-filters" aria-label="Book filters">
+                  <div className="form-field"><label htmlFor="resource-subject">Subject</label><select id="resource-subject" value={subject} onChange={(event) => setSubject(event.target.value)}><option value="All">All subjects</option>{subjects.map((item) => <option key={item}>{item}</option>)}</select></div>
+                  <div className="form-field"><label htmlFor="resource-series">Series</label><select id="resource-series" value={series} onChange={(event) => setSeries(event.target.value)}><option value="All">All series</option>{seriesOptions.map((item) => <option key={item}>{item}</option>)}</select></div>
+                  <div className="form-field"><label htmlFor="resource-feature">Resource type</label><select id="resource-feature" value={feature} onChange={(event) => setFeature(event.target.value)}><option value="All">All resources</option>{features.map((item) => <option key={item}>{item}</option>)}</select></div>
+                  <div className="form-field"><label htmlFor="resource-sort">Sort by</label><select id="resource-sort" value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="title">Book title</option><option value="series">Series</option><option value="subject">Subject</option></select></div>
+                </div>
+                {error && <div className="notice danger" role="alert">{error}</div>}
+                {loading ? <div className="notice neutral">Loading books...</div> : (
+                  <><div className="resource-results-bar" aria-live="polite"><span><strong>{filteredBooks.length}</strong> {filteredBooks.length === 1 ? "book" : "books"} found</span>{filtersActive && <button type="button" onClick={clearFilters}>Clear all filters</button>}</div>
+                    <div className="resource-book-list">{filteredBooks.map((book) => <article className="resource-book-result" key={book.isbn}>{book.coverPhotoLink ? <img src={book.coverPhotoLink} alt="" loading="lazy" /> : <div className="resource-cover-placeholder" aria-hidden="true">{book.title.slice(0, 1)}</div>}<div className="resource-book-copy"><small>{book.subject}</small><h3>{book.title}</h3><p>{book.series}</p>{!!book.digitalFeatures?.length && <div className="resource-feature-chips">{book.digitalFeatures.slice(0, 3).map((item) => <span key={item}>{item}</span>)}</div>}</div><button className="button small" type="button" onClick={() => { setSelectedStudentBook(book); setStudentIsbn(""); setError(""); }}>Explore resources</button></article>)}{!filteredBooks.length && <div className="empty-state resource-empty-state"><h3>No matching books</h3><p>Try a shorter search or remove one of the filters.</p>{filtersActive && <button className="button secondary small" type="button" onClick={clearFilters}>Clear all filters</button>}</div>}</div>
+                  </>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function DigitalLearningPage() {
+  const [resourceMode, setResourceMode] = useState(null);
   return (
     <>
       <section className="page-hero digital-page-hero">
@@ -223,13 +388,14 @@ function DigitalLearningPage() {
             >
               Request a Digital Resource
             </Link>
-
-            <a
-              className="button secondary"
-              href="#digital-resource-library"
-            >
+      
+            <button className="button secondary" type="button" onClick={() => setResourceMode("student")}>
               Explore the Resources
-            </a>
+            </button>
+
+            <button className="button green" type="button" onClick={() => setResourceMode("teacher")}>
+              Explore Resources as Teacher
+            </button>
           </div>
 
           <p className="availability-note">
@@ -535,12 +701,6 @@ function DigitalLearningPage() {
                 Partner Login
               </Link>
 
-              <Link
-                className="text-link light-link"
-                to="/activate"
-              >
-                Activate PartnerKey →
-              </Link>
             </div>
           </div>
         </div>
@@ -633,6 +793,7 @@ function DigitalLearningPage() {
           </div>
         </div>
       </section>
+      {resourceMode && <ResourceModal mode={resourceMode} onClose={() => setResourceMode(null)} />}
     </>
   );
 }

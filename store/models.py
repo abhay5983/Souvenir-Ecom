@@ -30,11 +30,101 @@ class Product(models.Model):
     breadth_cm = models.DecimalField(max_digits=7, decimal_places=2, default=18)
     height_cm = models.DecimalField(max_digits=7, decimal_places=2, default=1)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['isbn'], condition=~models.Q(isbn=''), name='unique_nonempty_product_isbn',
+            ),
+        ]
+
     def __str__(self):
         return f"{self.title} ({self.sku})"
 
 
+class DigitalResource(models.Model):
+    product = models.OneToOneField(Product, on_delete=models.CASCADE, related_name='digital_resource')
+    student_url = models.URLField(max_length=1000, blank=True)
+    teacher_url = models.URLField(max_length=1000, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Digital resources: {self.product.title} ({self.product.isbn})"
+
+
+class DigitalLearningRequest(models.Model):
+    STATUS_CHOICES = [
+        ('RECEIVED', 'Received'), ('UNDER_REVIEW', 'Under review'),
+        ('APPROVED', 'Approved'), ('DECLINED', 'Declined'), ('FULFILLED', 'Fulfilled'),
+    ]
+    reference = models.CharField(max_length=32, unique=True, blank=True)
+    requester_role = models.CharField(max_length=60)
+    requester_name = models.CharField(max_length=160)
+    requester_designation = models.CharField(max_length=160, blank=True)
+    requester_organisation = models.CharField(max_length=200, blank=True)
+    school_name = models.CharField(max_length=200)
+    school_board = models.CharField(max_length=100, blank=True)
+    email = models.EmailField(blank=True)
+    mobile = models.CharField(max_length=10, blank=True)
+    state_code = models.CharField(max_length=4)
+    pin_code = models.CharField(max_length=6)
+    subject = models.CharField(max_length=120)
+    series_code = models.CharField(max_length=100)
+    series_title = models.CharField(max_length=180)
+    selected_books = models.JSONField(default=list)
+    resource_codes = models.JSONField(default=list)
+    purpose = models.CharField(max_length=160)
+    usage_details = models.TextField()
+    additional_details = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='RECEIVED')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        if not self.reference:
+            from django.utils import timezone
+            self.reference = f"DLR-{timezone.now():%Y%m%d}-{secrets.token_hex(3).upper()}"
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.reference
+
+
+class PublicOutreachRequest(models.Model):
+    STATUS_CHOICES = [(value, value.replace('_', ' ').title()) for value in [
+        'NEW', 'IN_REVIEW', 'WAITING_FOR_CUSTOMER', 'RESOLVED', 'CLOSED',
+    ]]
+    reference = models.CharField(max_length=32, unique=True, blank=True)
+    form_type = models.CharField(max_length=60, db_index=True)
+    form_title = models.CharField(max_length=180)
+    category = models.CharField(max_length=120)
+    requester_name = models.CharField(max_length=160, blank=True)
+    organisation = models.CharField(max_length=200, blank=True)
+    email = models.EmailField(blank=True)
+    mobile = models.CharField(max_length=20, blank=True)
+    state = models.CharField(max_length=100, blank=True)
+    payload = models.JSONField(default=dict)
+    attachments = models.JSONField(default=list, blank=True)
+    confidential = models.BooleanField(default=False)
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='NEW', db_index=True)
+    assigned_team = models.CharField(max_length=120, blank=True)
+    assigned_to = models.CharField(max_length=160, blank=True)
+    internal_notes = models.JSONField(default=list, blank=True)
+    history = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        if not self.reference:
+            from django.utils import timezone
+            self.reference = f"OUT-{timezone.now():%Y%m%d}-{secrets.token_hex(3).upper()}"
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.reference
+
+
 class GuestOrder(models.Model):
+    DELIVERY_TYPES = [('STANDARD', 'Standard delivery'), ('PRIORITY', 'Priority delivery')]
     ORDER_STATUSES = [(value, value.replace('_', ' ').title()) for value in [
         'AWAITING_PAYMENT', 'PAID', 'PROCESSING', 'READY_TO_SHIP', 'CANCELLED', 'COMPLETED'
     ]]
@@ -54,6 +144,7 @@ class GuestOrder(models.Model):
     address = models.JSONField(default=dict)
     subtotal = models.PositiveIntegerField()
     shipping_charge = models.PositiveIntegerField(default=0)
+    delivery_type = models.CharField(max_length=20, choices=DELIVERY_TYPES, default='STANDARD')
     total = models.PositiveIntegerField()
     order_status = models.CharField(max_length=40, choices=ORDER_STATUSES, default='AWAITING_PAYMENT')
     payment_status = models.CharField(max_length=40, choices=PAYMENT_STATUSES, default='NOT_CONFIGURED')

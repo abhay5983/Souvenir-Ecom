@@ -15,8 +15,10 @@ import {
   removeCartItem,
   setCartQuantity,
 } from "../services/cartService";
+import { DEFAULT_DELIVERY_OPTION, DELIVERY_OPTIONS } from "../services/deliveryOptions.js";
 
 const CART_STORAGE_KEY = "souvenir-cart";
+const DELIVERY_STORAGE_KEY = "souvenir-delivery-option";
 
 const CartContext = createContext(null);
 
@@ -49,6 +51,14 @@ export function CartProvider({ children }) {
   const [cart, setCart] = useState(
     loadStoredCart,
   );
+  const [deliveryOption, setDeliveryOptionState] = useState(() => {
+    try {
+      const stored = sessionStorage.getItem(DELIVERY_STORAGE_KEY);
+      return DELIVERY_OPTIONS[stored] ? stored : DEFAULT_DELIVERY_OPTION;
+    } catch {
+      return DEFAULT_DELIVERY_OPTION;
+    }
+  });
 
   useEffect(() => {
     try {
@@ -60,6 +70,15 @@ export function CartProvider({ children }) {
       // Cart remains available in memory.
     }
   }, [cart]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(DELIVERY_STORAGE_KEY, deliveryOption); }
+    catch { /* Delivery choice remains available in memory. */ }
+  }, [deliveryOption]);
+
+  const setDeliveryOption = useCallback((option) => {
+    if (DELIVERY_OPTIONS[option]) setDeliveryOptionState(option);
+  }, []);
 
   const addToCart = useCallback((item) => {
     setCart((current) => {
@@ -106,6 +125,7 @@ export function CartProvider({ children }) {
 
   const clearCart = useCallback(() => {
     setCart(clearCartItems());
+    setDeliveryOptionState(DEFAULT_DELIVERY_OPTION);
   }, []);
 
   const cartCount = useMemo(() => {
@@ -116,6 +136,8 @@ export function CartProvider({ children }) {
     () => ({
       cart,
       cartCount,
+      deliveryOption,
+      setDeliveryOption,
       addToCart,
       addItems,
       updateQuantity,
@@ -125,6 +147,8 @@ export function CartProvider({ children }) {
     [
       cart,
       cartCount,
+      deliveryOption,
+      setDeliveryOption,
       addToCart,
       addItems,
       updateQuantity,
