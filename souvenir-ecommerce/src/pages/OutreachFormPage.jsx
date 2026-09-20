@@ -924,9 +924,9 @@ function getFieldOptions(
       series?.variants ?? []
     ).map((variant) => ({
       value: variant.id,
-      label:
-        variant.level ??
-        variant.title,
+      label: variant.level?.trim()
+        ? `${variant.level} — ${variant.title}`
+        : variant.title || variant.isbn || variant.id,
     }));
   }
 

@@ -3,6 +3,8 @@ import { useMemo, useState } from "react";
 
 import { Link } from "react-router-dom";
 
+import { AUTH_UI_ENABLED } from "../../config/features.js";
+
 import { useAuth } from "../../context/AuthContext.jsx";
 import { useCatalogue } from "../../context/CatalogueContext.jsx";
 import { ecommerceService } from "../../services/ecommerceService.js";
@@ -369,12 +371,12 @@ function RequestAside({ user }) {
         </div>
       )}
 
-     <Link
+     {AUTH_UI_ENABLED && <Link
   to="/login"
   className="text-link"
 >
   Already a partner? Partner Login →
-</Link>
+</Link>}
     </aside>
   );
 }

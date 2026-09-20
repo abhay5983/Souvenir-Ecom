@@ -120,6 +120,7 @@ function SelectFilter({
   options,
   value,
   onChange,
+  formatOption = (option) => option,
 }) {
   return (
     <div className="form-field">
@@ -142,7 +143,7 @@ function SelectFilter({
             key={option}
             value={option}
           >
-            {option}
+            {formatOption(option)}
           </option>
         ))}
       </select>
@@ -401,6 +402,7 @@ function BooksPage({
                 options={subjects}
                 value={filters.subject}
                 onChange={handleFilterChange}
+                formatOption={(option) => option.trim().toLowerCase() === "amber" ? "Semester Series" : option}
               />
 
               <SelectFilter

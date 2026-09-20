@@ -25,31 +25,9 @@ function HomePage() {
 
         <div className="hero-inner container">
           <picture className="hero-mobile-picture">
-            <source
-              media="(max-width: 900px)"
-              type="image/webp"
-              srcSet="
-                /assets/souvenir-classroom-hero-960.png 960w,
-                /assets/souvenir-classroom-hero-1672.jpg 1672w
-              "
-              sizes="100vw"
-            />
-
-            <source
-              media="(max-width: 900px)"
-              type="image/jpeg"
-              srcSet="
-                /assets/souvenir-classroom-hero-960.jpg 960w,
-                /assets/souvenir-classroom-hero-1672.jpg 1672w
-              "
-              sizes="100vw"
-            />
-
             <img
               className="hero-mobile-image"
               src="/assets/souvenir-classroom-hero-960.jpg"
-              srcSet="/assets/souvenir-classroom-hero-960.jpg 960w, /assets/souvenir-classroom-hero-1672.jpg 1672w"
-              sizes="100vw"
               alt="Indian teacher standing with four school students in a bright classroom."
               width="1672"
               height="941"
@@ -80,9 +58,9 @@ function HomePage() {
 
               <Link
                 className="button secondary"
-                to="/login"
+                to="/digital-learning"
               >
-                Account holder login
+                Digital Learning
               </Link>
             </div>
 

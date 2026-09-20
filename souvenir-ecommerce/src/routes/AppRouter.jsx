@@ -1,5 +1,6 @@
 import {
     BrowserRouter,
+    Navigate,
     Route,
     Routes,
 } from "react-router-dom";
@@ -48,6 +49,7 @@ import ControlAccessPage from "../pages/ControlAccessPage.jsx";
 import WorkflowDashboardPage from "../pages/WorkflowDashboardPage.jsx";
 import WorkflowRequestDetailPage from "../pages/WorkflowRequestDetailPage.jsx";
 import RequestHubPage from "../pages/RequestHubPage.jsx";
+import { AUTH_UI_ENABLED, CHECKOUT_ENABLED } from "../config/features.js";
 
 function AppRouter() {
     return (
@@ -83,7 +85,7 @@ function AppRouter() {
 
                     <Route
                         path="/checkout"
-                        element={<CheckoutPage />}
+                        element={CHECKOUT_ENABLED ? <CheckoutPage /> : <Navigate to="/cart" replace />}
                     />
 
                     <Route
@@ -118,7 +120,7 @@ function AppRouter() {
 
                     <Route
                         path="/login"
-                        element={<LoginPage />}
+                        element={AUTH_UI_ENABLED ? <LoginPage /> : <Navigate to="/" replace />}
                     />
 
                     <Route path="/return-policy" element={<PolicyPage policy="returns" />} />
@@ -130,7 +132,7 @@ function AppRouter() {
                     <Route
                         path="/control-access"
                         element={
-                            <ControlAccessPage />
+                            AUTH_UI_ENABLED ? <ControlAccessPage /> : <Navigate to="/" replace />
                         }
                     />
                 </Route>

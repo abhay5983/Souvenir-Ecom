@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 
+import { AUTH_UI_ENABLED } from "../config/features.js";
+
 import PageHero from "../components/common/PageHero";
 
 function AboutPage() {
@@ -317,12 +319,12 @@ function AboutPage() {
                 Explore books
               </Link>
 
-              <Link
+              {AUTH_UI_ENABLED && <Link
                 className="button secondary"
                 to="/login"
               >
                 Partner login
-              </Link>
+              </Link>}
             </div>
           </div>
         </div>

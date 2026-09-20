@@ -297,7 +297,6 @@ button {
   z-index: -2;
   inset: 0;
   background-image: url("/assets/souvenir-classroom-hero-960.jpg");
-  background-image: image-set(url("/assets/souvenir-classroom-hero-960.jpg") type("image/webp"), url("/assets/souvenir-classroom-hero-960.jpg") type("image/jpeg"));
   background-position: center left;
   background-size: cover;
 }
@@ -6566,6 +6565,13 @@ tr:last-child td {
 }
 
 .teacher-resource-modal { width: min(540px, 100%); }
+
+.checkout-notice-backdrop { z-index: 1200; }
+.checkout-notice-modal { width: min(500px, 100%); padding: clamp(28px, 5vw, 42px); text-align: center; }
+.checkout-notice-modal .resource-modal-close { position: absolute; top: 16px; right: 16px; }
+.checkout-notice-modal h2 { margin: 0 0 14px; font-size: clamp(1.55rem, 4vw, 2rem); line-height: 1.2; }
+.checkout-notice-modal > p:not(.eyebrow) { margin: 0 0 24px; color: var(--ink-600); line-height: 1.65; }
+.checkout-notice-icon { display: grid; width: 64px; height: 64px; place-items: center; margin: 0 auto 18px; border-radius: 18px; background: #edf5f1; color: var(--brand-green-700); font-size: 1.4rem; font-weight: 900; }
 
 .resource-modal-close {
   position: absolute;

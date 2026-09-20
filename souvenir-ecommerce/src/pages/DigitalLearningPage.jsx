@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+
+import { AUTH_UI_ENABLED } from "../config/features.js";
 import { ecommerceService } from "../services/ecommerceService.js";
 
 const digitalResources = [
@@ -694,12 +696,12 @@ function DigitalLearningPage() {
                 Start Resource Request
               </Link>
 
-              <Link
+              {AUTH_UI_ENABLED && <Link
                 className="button secondary"
                 to="/login"
               >
                 Partner Login
-              </Link>
+              </Link>}
 
             </div>
           </div>

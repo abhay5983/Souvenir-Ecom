@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 
+import { AUTH_UI_ENABLED } from "../../config/features.js";
+
 import Brand from "../common/Brand";
 
 function Footer() {
@@ -44,9 +46,9 @@ function Footer() {
                 <Link to="/cart">Cart</Link>
               </li>
 
-              <li>
+              {AUTH_UI_ENABLED && <li>
                 <Link to="/login">Partner Login</Link>
-              </li>
+              </li>}
 
               <li>
                 <Link to="/help/guides/place-sales-order">
