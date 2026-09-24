@@ -10,7 +10,7 @@ function Brand({ onClick }) {
     >
       <img
         className="brand-logo"
-        src="/assets/souvenir-logo-official.svg"
+        src="/assets/souvenir-logo-official.svg?v=20260924"
         alt="Souvenir Publishers — Since 1972"
         width="1500"
         height="1500"
