@@ -6565,6 +6565,9 @@ tr:last-child td {
 }
 
 .teacher-resource-modal { width: min(540px, 100%); }
+.teacher-resource-modal.teacher-catalogue-modal { width: min(960px, 100%); }
+.teacher-resource-modal.teacher-catalogue-modal .resource-modal-header { max-width: 720px; padding-inline: 0 3.5rem; text-align: left; }
+.teacher-resource-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 .checkout-notice-backdrop { z-index: 1200; }
 .checkout-notice-modal { width: min(500px, 100%); padding: clamp(28px, 5vw, 42px); text-align: center; }

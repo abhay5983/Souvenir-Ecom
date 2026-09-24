@@ -208,6 +208,7 @@ function ResourceModal({ mode, onClose }) {
   const [sortBy, setSortBy] = useState("title");
   const [isbn, setIsbn] = useState("");
   const [teacherPassword, setTeacherPassword] = useState("");
+  const [teacherUnlocked, setTeacherUnlocked] = useState(false);
   const [selectedStudentBook, setSelectedStudentBook] = useState(null);
   const [studentIsbn, setStudentIsbn] = useState("");
   const [loading, setLoading] = useState(!teacherMode);
@@ -268,6 +269,12 @@ function ResourceModal({ mode, onClose }) {
     setLoading(true);
     try {
       const result = await ecommerceService.teacherResource(isbn, teacherPassword);
+      if (result.accessMode === "CATALOGUE") {
+        setBooks(result.books ?? []);
+        setTeacherUnlocked(true);
+        setLoading(false);
+        return;
+      }
       window.location.assign(result.resourceUrl);
     } catch (requestError) {
       setError(requestError.message);
@@ -290,15 +297,28 @@ function ResourceModal({ mode, onClose }) {
 
   return (
     <div className="resource-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className={`resource-modal${teacherMode ? " teacher-resource-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="resource-modal-title">
+      <section className={`resource-modal${teacherMode ? " teacher-resource-modal" : ""}${teacherUnlocked ? " teacher-catalogue-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="resource-modal-title">
         <button className="resource-modal-close" type="button" aria-label="Close resource finder" onClick={onClose}>×</button>
         <header className="resource-modal-header">
           <p className="eyebrow">{teacherMode ? "Teacher access" : "Student resources"}</p>
-          <h2 id="resource-modal-title">{teacherMode ? "Find resources by ISBN" : "Find your book"}</h2>
-          <p>{teacherMode ? "Use the ISBN on your book to open its complete teacher resource collection." : "Search the catalogue or narrow the results using the filters below."}</p>
+          <h2 id="resource-modal-title">{teacherMode ? teacherUnlocked ? "Teacher resource catalogue" : "Find resources by ISBN" : "Find your book"}</h2>
+          <p>{teacherMode ? teacherUnlocked ? "Search or filter the available books, then open the required teacher resources." : "Use the ISBN on your book to open its complete teacher resource collection." : "Search the catalogue or narrow the results using the filters below."}</p>
         </header>
         {teacherMode ? (
-          <form className="teacher-resource-form" onSubmit={openTeacherResource}>
+          teacherUnlocked ? <>
+            <button className="text-link resource-back-button" type="button" onClick={() => { setTeacherUnlocked(false); setBooks([]); setIsbn(""); setTeacherPassword(""); clearFilters(); }}>← Back to ISBN access</button>
+            <div className="resource-search-field form-field">
+              <label htmlFor="teacher-resource-search">Search teacher resources</label>
+              <div className="resource-search-input"><input id="teacher-resource-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by book, series, subject or ISBN" autoFocus />{query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search">×</button>}</div>
+            </div>
+            <div className="resource-filters teacher-resource-filters" aria-label="Teacher resource filters">
+              <div className="form-field"><label htmlFor="teacher-resource-subject">Subject</label><select id="teacher-resource-subject" value={subject} onChange={(event) => setSubject(event.target.value)}><option value="All">All subjects</option>{subjects.map((item) => <option key={item}>{item}</option>)}</select></div>
+              <div className="form-field"><label htmlFor="teacher-resource-series">Series</label><select id="teacher-resource-series" value={series} onChange={(event) => setSeries(event.target.value)}><option value="All">All series</option>{seriesOptions.map((item) => <option key={item}>{item}</option>)}</select></div>
+              <div className="form-field"><label htmlFor="teacher-resource-sort">Sort by</label><select id="teacher-resource-sort" value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="title">Book title</option><option value="series">Series</option><option value="subject">Subject</option></select></div>
+            </div>
+            <div className="resource-results-bar" aria-live="polite"><span><strong>{filteredBooks.length}</strong> {filteredBooks.length === 1 ? "book" : "books"} found</span>{filtersActive && <button type="button" onClick={clearFilters}>Clear all filters</button>}</div>
+            <div className="resource-book-list teacher-resource-book-list">{filteredBooks.map((book) => <article className="resource-book-result" key={book.isbn}>{book.coverPhotoLink ? <img src={book.coverPhotoLink} alt="" loading="lazy" /> : <div className="resource-cover-placeholder" aria-hidden="true">{book.title.slice(0, 1)}</div>}<div className="resource-book-copy"><small>{book.subject}</small><h3>{book.title}</h3><p>{book.series}</p></div><button className="button small" type="button" onClick={() => window.location.assign(book.resourceUrl)}>Open resources</button></article>)}{!filteredBooks.length && <div className="empty-state resource-empty-state"><h3>No matching books</h3><p>Try a shorter search or remove one of the filters.</p>{filtersActive && <button className="button secondary small" type="button" onClick={clearFilters}>Clear all filters</button>}</div>}</div>
+          </> : <form className="teacher-resource-form" onSubmit={openTeacherResource}>
             <div className="teacher-isbn-guide" aria-hidden="true"><span>ISBN</span><i /></div>
             {error && <div className="notice danger" role="alert">{error}</div>}
             <div className="form-field">

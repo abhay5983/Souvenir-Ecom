@@ -156,6 +156,9 @@ SHIPROCKET_DEFAULT_PACKAGE_LENGTH_CM = float(os.getenv('SHIPROCKET_DEFAULT_PACKA
 SHIPROCKET_DEFAULT_PACKAGE_BREADTH_CM = float(os.getenv('SHIPROCKET_DEFAULT_PACKAGE_BREADTH_CM', '22'))
 SHIPROCKET_DEFAULT_PACKAGE_HEIGHT_CM = float(os.getenv('SHIPROCKET_DEFAULT_PACKAGE_HEIGHT_CM', '5'))
 
+# Temporary teacher-resource catalogue access. Override or remove through the environment.
+TEACHER_RESOURCE_BYPASS_CODE = os.getenv('TEACHER_RESOURCE_BYPASS_CODE', '9205406902')
+
 # Fastrr Checkout (values/endpoint come from the custom-stack onboarding kit).
 FASTRR_CREATE_SESSION_URL = os.getenv('FASTRR_CREATE_SESSION_URL', '')
 FASTRR_MERCHANT_ID = os.getenv('FASTRR_MERCHANT_ID', '')

@@ -150,6 +150,19 @@ def teacher_resource(request):
         return error('Invalid JSON body.')
     isbn = normalize_isbn(payload.get('isbn'))
     password = normalize_isbn(payload.get('password'))
+    bypass_code = normalize_isbn(settings.TEACHER_RESOURCE_BYPASS_CODE)
+    if (bypass_code and isbn and password
+            and hmac.compare_digest(isbn, bypass_code)
+            and hmac.compare_digest(password, bypass_code)):
+        products = Product.objects.filter(
+            active=True, public_visibility=True, digital_resource__teacher_url__gt='',
+        ).select_related('digital_resource').order_by('series_title', 'title')
+        return JsonResponse({'accessMode': 'CATALOGUE', 'books': [{
+            'isbn': product.isbn, 'title': product.title, 'series': product.series_title,
+            'subject': product.subject, 'digitalFeatures': product.digital_features,
+            'coverPhotoLink': product.cover_image_url,
+            'resourceUrl': product.digital_resource.teacher_url,
+        } for product in products]})
     if not isbn or not password or not hmac.compare_digest(isbn, password):
         return error('The ISBN or password is incorrect.', 403, 'INVALID_TEACHER_ACCESS')
     product = Product.objects.filter(active=True, isbn=isbn).select_related('digital_resource').first()
@@ -159,6 +172,7 @@ def teacher_resource(request):
     if not resource or not resource.teacher_url:
         return error('Teacher resources are not available for this book yet.', 404, 'RESOURCE_NOT_AVAILABLE')
     return JsonResponse({
+        'accessMode': 'DIRECT',
         'isbn': product.isbn, 'title': product.title, 'series': product.series_title,
         'resourceUrl': resource.teacher_url,
     })

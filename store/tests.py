@@ -181,6 +181,22 @@ class DigitalResourceImportTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertNotIn('resourceUrl', response.json())
 
+    def test_teacher_bypass_returns_teacher_resource_catalogue(self):
+        import_resources(self.upload())
+        response = self.client.post('/api/digital-resources/teacher', json.dumps({
+            'isbn': '9205406902', 'password': '9205406902',
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['accessMode'], 'CATALOGUE')
+        self.assertEqual(response.json()['books'][0]['title'], self.product.title)
+        self.assertEqual(response.json()['books'][0]['resourceUrl'], 'https://learn.example.com/teacher/book')
+
+    def test_teacher_bypass_requires_code_in_both_fields(self):
+        response = self.client.post('/api/digital-resources/teacher', json.dumps({
+            'isbn': '9205406902', 'password': self.product.isbn,
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 403)
+
     def test_unknown_isbn_does_not_create_resource(self):
         with self.assertRaisesMessage(Exception, 'does not exist in the books catalogue'):
             import_resources(self.upload('9780000000000'))
