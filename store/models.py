@@ -1,5 +1,6 @@
 import secrets
 from django.db import models
+from django.utils import timezone
 
 
 class Product(models.Model):
@@ -156,9 +157,6 @@ class GuestOrder(models.Model):
     payment_transaction_id = models.CharField(max_length=120, blank=True)
     payment_verified_at = models.DateTimeField(null=True, blank=True)
     checkout_idempotency_key = models.CharField(max_length=80, unique=True, null=True, blank=True)
-    shiprocket_order_id = models.CharField(max_length=80, blank=True)
-    shiprocket_shipment_id = models.CharField(max_length=80, blank=True)
-    shiprocket_awb = models.CharField(max_length=80, blank=True)
     courier_id = models.CharField(max_length=40, blank=True)
     courier_name = models.CharField(max_length=120, blank=True)
     estimated_delivery_date = models.DateField(null=True, blank=True)
@@ -205,9 +203,87 @@ class PaymentAttempt(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=('provider', 'session_id'), condition=~models.Q(session_id=''),
+                name='unique_provider_payment_session',
+            ),
+            models.UniqueConstraint(
+                fields=('provider', 'transaction_id'), condition=~models.Q(transaction_id=''),
+                name='unique_provider_payment_transaction',
+            ),
+        ]
+
+
+class OrderBackgroundJob(models.Model):
+    JOB_TYPES = [('SEND_CONFIRMATION_EMAILS', 'Send confirmation emails')]
+    STATUSES = [('PENDING', 'Pending'), ('PROCESSING', 'Processing'), ('COMPLETED', 'Completed'), ('FAILED', 'Failed')]
+
+    order = models.ForeignKey(GuestOrder, on_delete=models.CASCADE, related_name='background_jobs')
+    job_type = models.CharField(max_length=40, choices=JOB_TYPES)
+    status = models.CharField(max_length=20, choices=STATUSES, default='PENDING', db_index=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    error = models.TextField(blank=True)
+    available_at = models.DateTimeField(default=timezone.now, db_index=True)
+    locked_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=('order', 'job_type'), name='unique_order_background_job'),
+        ]
+
+
+class OrderNotificationRecipient(models.Model):
+    name = models.CharField(max_length=120, blank=True)
+    email = models.EmailField(unique=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('email',)
+        verbose_name = 'order email recipient'
+        verbose_name_plural = 'order email recipients'
+
+    def save(self, *args, **kwargs):
+        self.email = self.email.strip().lower()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name or self.email
+
+
+class OrderEmailDelivery(models.Model):
+    RECIPIENT_TYPES = [('CUSTOMER', 'Customer'), ('INTERNAL', 'Internal recipient')]
+    STATUSES = [('PENDING', 'Pending'), ('SENDING', 'Sending'), ('SENT', 'Sent'), ('FAILED', 'Failed')]
+
+    order = models.ForeignKey(GuestOrder, on_delete=models.CASCADE, related_name='email_deliveries')
+    recipient_email = models.EmailField()
+    recipient_type = models.CharField(max_length=20, choices=RECIPIENT_TYPES)
+    status = models.CharField(max_length=20, choices=STATUSES, default='PENDING')
+    error = models.TextField(blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=('order', 'recipient_email'), name='unique_order_confirmation_recipient',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.order.order_number} to {self.recipient_email}'
+
 
 class IntegrationEvent(models.Model):
-    PROVIDERS = [('FASTRR', 'Fastrr'), ('SHIPROCKET', 'Shiprocket')]
+    PROVIDERS = [('FASTRR', 'Fastrr'), ('RAZORPAY', 'Razorpay')]
     provider = models.CharField(max_length=30, choices=PROVIDERS)
     event_key = models.CharField(max_length=128)
     event_type = models.CharField(max_length=100, blank=True)
@@ -220,17 +296,3 @@ class IntegrationEvent(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['provider', 'event_key'], name='unique_provider_event')]
-
-
-class ShipmentEvent(models.Model):
-    order = models.ForeignKey(GuestOrder, on_delete=models.CASCADE, related_name='shipment_events')
-    provider_status = models.CharField(max_length=120)
-    normalized_status = models.CharField(max_length=40)
-    description = models.TextField(blank=True)
-    location = models.CharField(max_length=180, blank=True)
-    event_time = models.DateTimeField()
-    payload = models.JSONField(default=dict, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['event_time']

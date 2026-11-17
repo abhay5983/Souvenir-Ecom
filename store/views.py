@@ -8,20 +8,18 @@ from django.core.validators import validate_email
 from django.db import transaction
 from django.http import JsonResponse
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
-from .integrations.exceptions import IntegrationError, IntegrationNotConfigured
-from .integrations.fastrr import FastrrClient, payments_configured, verify_webhook
-from .integrations.shiprocket import (
-    ShiprocketClient, create_shipment_for_paid_order, quote_for_lines, shipping_configured,
-)
-from .models import DigitalLearningRequest, GuestOrder, IntegrationEvent, OrderItem, PaymentAttempt, Product, PublicOutreachRequest, ShipmentEvent
+from .integrations.exceptions import IntegrationError
+from .integrations.razorpay_gateway import create_payment_order, fetch_payment, payments_configured
+from .models import DigitalLearningRequest, GuestOrder, IntegrationEvent, OrderBackgroundJob, OrderItem, PaymentAttempt, Product, PublicOutreachRequest
+from .rate_limit import rate_limit
 from .resource_import import normalize_isbn
 
 DELIVERY_OPTIONS = {
-    'STANDARD': {'shippingCharge': 200, 'deliveryLabel': 'Standard delivery', 'deliveryTimeline': '6–8 working days'},
-    'PRIORITY': {'shippingCharge': 500, 'deliveryLabel': 'Priority delivery', 'deliveryTimeline': '2–3 working days'},
+    'STANDARD': {'shippingCharge': 1, 'deliveryLabel': 'Standard delivery', 'deliveryTimeline': '6–8 working days'},
+    'PRIORITY': {'shippingCharge': 1, 'deliveryLabel': 'Priority delivery', 'deliveryTimeline': '2–3 working days'},
 }
 
 
@@ -350,7 +348,6 @@ def serialize_hub_order(order):
             'subtotal': f'₹{order.subtotal:,}', 'shippingCharge': f'₹{order.shipping_charge:,}',
             'orderTotal': f'₹{order.total:,}', 'paymentStatus': order.payment_status,
             'shipmentStatus': order.shipment_status, 'courier': order.courier_name,
-            'trackingAwb': order.shiprocket_awb,
         },
         'attachments': [], 'notes': [], 'history': [],
         'createdAt': order.created_at.isoformat(), 'updatedAt': order.updated_at.isoformat(),
@@ -445,7 +442,7 @@ def public_order(order):
         'subtotal': order.subtotal, 'shippingCharge': order.shipping_charge, 'total': order.total,
         'deliveryType': order.delivery_type, 'deliveryLabel': selected_delivery['deliveryLabel'],
         'deliveryTimeline': selected_delivery['deliveryTimeline'],
-        'trackingToken': order.tracking_token, 'awb': order.shiprocket_awb,
+        'trackingToken': order.tracking_token,
         'courierName': order.courier_name,
         'estimatedDeliveryDate': order.estimated_delivery_date.isoformat() if order.estimated_delivery_date else None,
     }
@@ -475,49 +472,52 @@ def resolve_lines(lines):
     return resolved, subtotal
 
 
-def payment_session_for_order(order):
+def payment_session_for_order(order, *, force_new=False):
     if not payments_configured():
         return {'configured': False, 'status': 'NOT_CONFIGURED'}
-    session = FastrrClient().create_session(order)
-    order.payment_status = 'PENDING'
-    order.payment_session_id = session['sessionId']
-    order.save(update_fields=['payment_status', 'payment_session_id', 'updated_at'])
-    PaymentAttempt.objects.create(
-        order=order, session_id=session['sessionId'], status='PENDING', amount=order.total * 100,
-        provider_response=session['raw'],
-    )
+    with transaction.atomic():
+        locked = GuestOrder.objects.select_for_update().get(id=order.id)
+        if locked.payment_status == 'PAID':
+            raise IntegrationError('This order is already paid.', code='ALREADY_PAID', status=409)
+        current_attempt = locked.payment_attempts.filter(
+            provider='RAZORPAY', session_id=locked.payment_order_id,
+        ).order_by('-created_at').first()
+        attempt_key_id = (current_attempt.provider_response or {}).get('integration_key_id') if current_attempt else None
+        if locked.payment_order_id and not force_new and attempt_key_id == settings.RAZORPAY_KEY_ID:
+            return {
+                'configured': True,
+                'orderId': locked.payment_order_id,
+                'order_id': locked.payment_order_id,
+                'amount': locked.total * 100,
+                'currency': 'INR',
+                'keyId': settings.RAZORPAY_KEY_ID,
+            }
+
+        locked.payment_attempts.filter(provider='RAZORPAY', status='PENDING').update(status='REPLACED')
+        session = create_payment_order(locked)
+        locked.payment_status = 'PENDING'
+        locked.payment_provider = 'RAZORPAY'
+        locked.payment_order_id = session['orderId']
+        locked.payment_session_id = session['orderId']
+        locked.save(update_fields=[
+            'payment_status', 'payment_provider', 'payment_order_id', 'payment_session_id', 'updated_at',
+        ])
+        PaymentAttempt.objects.create(
+            order=locked, provider='RAZORPAY', session_id=session['orderId'], status='PENDING',
+            amount=locked.total * 100,
+            provider_response={**session['raw'], 'integration_key_id': settings.RAZORPAY_KEY_ID},
+        )
     return {key: value for key, value in session.items() if key != 'raw'} | {'configured': True}
 
 
 @require_GET
 def integration_status(request):
-    return JsonResponse({'shippingConfigured': shipping_configured(), 'paymentsConfigured': payments_configured()})
+    return JsonResponse({'paymentsConfigured': payments_configured()})
 
 
-@csrf_exempt
+@never_cache
 @require_POST
-def shipping_quote(request):
-    payload = parse_json(request)
-    if payload is None:
-        return error('Invalid JSON body.')
-    postal_code = str(payload.get('postal_code', '')).strip()
-    selected_delivery = delivery_option(payload.get('delivery_type'))
-    if not selected_delivery:
-        return error('Choose a valid delivery option.')
-    if not re.fullmatch(r'\d{6}', postal_code):
-        return error('Enter a valid 6-digit PIN code.')
-    try:
-        resolved, subtotal = resolve_lines(payload.get('lines'))
-        quote = quote_for_lines(postal_code, [(product, quantity) for product, quantity, _ in resolved], subtotal)
-        return JsonResponse({**quote, **selected_delivery})
-    except ValidationError as exc:
-        return error(exc.messages[0])
-    except IntegrationError as exc:
-        return error(str(exc), exc.status, exc.code)
-
-
-@csrf_exempt
-@require_POST
+@rate_limit(scope='create-order', limit=10, window=60)
 def create_order(request):
     payload = parse_json(request)
     if payload is None:
@@ -533,15 +533,43 @@ def create_order(request):
         return error('Choose a valid delivery option.')
 
     if idempotency_key:
-        existing = GuestOrder.objects.filter(checkout_idempotency_key=idempotency_key).first()
+        existing = GuestOrder.objects.prefetch_related('items').filter(
+            checkout_idempotency_key=idempotency_key,
+        ).first()
         if existing:
+            try:
+                current_lines, current_subtotal = resolve_lines(payload.get('lines'))
+            except ValidationError as exc:
+                return error(exc.messages[0])
+            requested_lines = sorted((product.sku, quantity) for product, quantity, _ in current_lines)
+            existing_lines = sorted((item.sku, item.quantity) for item in existing.items.all())
+            expected_total = current_subtotal + selected_delivery['shippingCharge']
+            checkout_matches = all([
+                existing.mobile == mobile,
+                existing.delivery_type == delivery_type,
+                existing_lines == requested_lines,
+                existing.subtotal == current_subtotal,
+                existing.shipping_charge == selected_delivery['shippingCharge'],
+                existing.total == expected_total,
+            ])
+            if not checkout_matches:
+                return error(
+                    'Cart prices or contents changed. Review the updated total and try payment again.',
+                    409, 'STALE_CHECKOUT',
+                )
             response = public_order(existing)
             try:
-                response['payment'] = payment_session_for_order(existing) if not existing.payment_session_id else {
-                    'configured': payments_configured(), 'sessionId': existing.payment_session_id,
-                }
+                # A repeated browser submission keeps the Souvenir order but receives a
+                # fresh Razorpay order, avoiding stale Checkout sessions and cached attempts.
+                response['payment'] = payment_session_for_order(existing, force_new=True)
             except IntegrationError as exc:
-                response['payment'] = {'configured': True, 'error': str(exc), 'code': exc.code}
+                return error(str(exc), exc.status, exc.code)
+            if response['payment'].get('configured'):
+                response.update({
+                    'order_id': response['payment']['order_id'],
+                    'amount': response['payment']['amount'],
+                    'currency': response['payment']['currency'],
+                })
             return JsonResponse(response)
 
     if len(name) < 2:
@@ -561,19 +589,16 @@ def create_order(request):
 
     try:
         resolved, subtotal = resolve_lines(payload.get('lines'))
-        quote = quote_for_lines(postal_code, [(product, quantity) for product, quantity, _ in resolved], subtotal)
     except ValidationError as exc:
         return error(exc.messages[0])
-    except IntegrationError as exc:
-        return error(str(exc), exc.status, exc.code)
 
     with transaction.atomic():
         order = GuestOrder.objects.create(
             customer_name=name, mobile=mobile, email=email, address=address, subtotal=subtotal,
             shipping_charge=selected_delivery['shippingCharge'],
             total=subtotal + selected_delivery['shippingCharge'], delivery_type=delivery_type,
+            payment_provider='RAZORPAY',
             checkout_idempotency_key=idempotency_key,
-            courier_id=str(quote.get('courierId') or ''), courier_name=quote.get('courierName', ''),
         )
         OrderItem.objects.bulk_create([
             OrderItem(order=order, product=product, sku=product.sku, title=product.title,
@@ -587,13 +612,20 @@ def create_order(request):
     except IntegrationError as exc:
         order.integration_error = str(exc)
         order.save(update_fields=['integration_error', 'updated_at'])
-        response['payment'] = {'configured': True, 'error': str(exc), 'code': exc.code}
+        return error(str(exc), exc.status, exc.code)
+    if response['payment'].get('configured'):
+        response.update({
+            'order_id': response['payment']['order_id'],
+            'amount': response['payment']['amount'],
+            'currency': response['payment']['currency'],
+        })
     response['message'] = 'Order details saved. Payment is pending.'
     return JsonResponse(response, status=201)
 
 
-@csrf_exempt
+@never_cache
 @require_POST
+@rate_limit(scope='retry-payment', limit=5, window=300)
 def retry_payment_session(request, order_number):
     payload = parse_json(request) or {}
     mobile = clean_mobile(payload.get('mobile'))
@@ -603,129 +635,149 @@ def retry_payment_session(request, order_number):
     if order.payment_status == 'PAID':
         return error('This order is already paid.', 409, 'ALREADY_PAID')
     try:
-        return JsonResponse(payment_session_for_order(order))
+        return JsonResponse(payment_session_for_order(order, force_new=True))
     except IntegrationError as exc:
         return error(str(exc), exc.status, exc.code)
 
 
-def payload_value(payload, *names):
-    for name in names:
-        value = payload.get(name)
-        if value not in (None, ''):
-            return value
-    data = payload.get('data') if isinstance(payload.get('data'), dict) else {}
-    for name in names:
-        value = data.get(name)
-        if value not in (None, ''):
-            return value
-    return None
-
-
-@csrf_exempt
+@never_cache
 @require_POST
-def payment_webhook(request):
-    raw = request.body
-    signature = request.headers.get(settings.FASTRR_WEBHOOK_SIGNATURE_HEADER, '')
-    try:
-        if not verify_webhook(raw, signature):
-            return error('Invalid payment webhook signature.', 401, 'INVALID_SIGNATURE')
-    except IntegrationNotConfigured as exc:
-        return error(str(exc), 503, exc.code)
+@rate_limit(scope='verify-payment', limit=15, window=300)
+def verify_payment(request):
     payload = parse_json(request)
     if payload is None:
         return error('Invalid JSON body.')
-    event_key = str(payload_value(payload, 'eventId', 'event_id', 'id') or hashlib.sha256(raw).hexdigest())
-    event, created = IntegrationEvent.objects.get_or_create(
-        provider='FASTRR', event_key=event_key,
-        defaults={'event_type': str(payload_value(payload, 'event', 'eventType', 'type') or ''), 'payload': payload},
+
+    razorpay_payment_id = str(payload.get('razorpay_payment_id') or '').strip()
+    razorpay_order_id = str(payload.get('razorpay_order_id') or '').strip()
+    razorpay_signature = str(payload.get('razorpay_signature') or '').strip()
+    if not all((razorpay_payment_id, razorpay_order_id, razorpay_signature)):
+        return error('Payment ID, order ID and signature are required.', 400, 'MISSING_PAYMENT_FIELDS')
+    if not payments_configured():
+        return error('Razorpay credentials are not configured.', 503, 'NOT_CONFIGURED')
+
+    attempt = PaymentAttempt.objects.select_related('order').filter(
+        provider='RAZORPAY', session_id=razorpay_order_id,
+    ).order_by('-created_at').first()
+    if not attempt:
+        return error('Payment order was not found.', 400, 'UNKNOWN_PAYMENT_ORDER')
+    order = attempt.order
+
+    signed_payload = f'{razorpay_order_id}|{razorpay_payment_id}'.encode()
+    expected_signature = hmac.new(
+        settings.RAZORPAY_KEY_SECRET.encode(), signed_payload, hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected_signature, razorpay_signature):
+        return error('Payment signature verification failed.', 400, 'INVALID_SIGNATURE')
+
+    try:
+        provider_payment = fetch_payment(razorpay_payment_id)
+    except IntegrationError as exc:
+        return error(str(exc), exc.status, exc.code)
+    if str(provider_payment.get('order_id') or '') != razorpay_order_id:
+        return error('Payment does not belong to this order.', 400, 'PAYMENT_ORDER_MISMATCH')
+    if int(provider_payment.get('amount') or 0) != order.total * 100:
+        return error('Payment amount does not match the order total.', 400, 'PAYMENT_AMOUNT_MISMATCH')
+    if str(provider_payment.get('currency') or '').upper() != 'INR':
+        return error('Payment currency does not match the order.', 400, 'PAYMENT_CURRENCY_MISMATCH')
+    if str(provider_payment.get('status') or '').lower() != 'captured':
+        return error('Payment is not captured yet. Please wait and retry.', 409, 'PAYMENT_NOT_CAPTURED')
+
+    order = complete_razorpay_payment(
+        order, attempt, provider_payment, signature_verified=True,
     )
-    if not created and event.status == 'PROCESSED':
-        return JsonResponse({'ok': True, 'duplicate': True})
-    order_number = str(payload_value(payload, 'merchantOrderId', 'orderNumber', 'order_id') or '')
-    order = GuestOrder.objects.filter(order_number__iexact=order_number).first()
-    if not order:
-        event.status, event.error, event.processed_at = 'FAILED', 'Order not found.', timezone.now()
-        event.save()
-        return error('Order not found.', 404, 'NOT_FOUND')
-    status = str(payload_value(payload, 'paymentStatus', 'status') or '').upper()
-    transaction_id = str(payload_value(payload, 'transactionId', 'paymentId', 'payment_id') or '')
-    event.order = order
-    if status in {'PAID', 'SUCCESS', 'CAPTURED', 'COMPLETED'}:
-        with transaction.atomic():
-            locked = GuestOrder.objects.select_for_update().get(id=order.id)
+    return JsonResponse({
+        'success': True,
+        'message': 'Payment verified successfully.',
+        **public_order(order),
+    })
+
+
+def complete_razorpay_payment(order, attempt, provider_payment, *, signature_verified=False):
+    payment_id = str(provider_payment.get('id') or '')
+    with transaction.atomic():
+        locked = GuestOrder.objects.select_for_update().get(id=order.id)
+        if locked.payment_status != 'PAID':
             locked.payment_status = 'PAID'
             locked.order_status = 'PAID'
-            locked.payment_transaction_id = transaction_id
+            locked.payment_transaction_id = payment_id
             locked.payment_verified_at = timezone.now()
-            locked.save()
-        PaymentAttempt.objects.filter(order=order, session_id=order.payment_session_id).update(
-            status='PAID', transaction_id=transaction_id, provider_response=payload,
+            locked.integration_error = ''
+            locked.save(update_fields=[
+                'payment_status', 'order_status', 'payment_transaction_id',
+                'payment_verified_at', 'integration_error', 'updated_at',
+            ])
+            OrderBackgroundJob.objects.get_or_create(
+                order=locked, job_type='SEND_CONFIRMATION_EMAILS',
+            )
+        PaymentAttempt.objects.filter(id=attempt.id).update(
+            status='PAID', transaction_id=payment_id,
+            provider_response={**provider_payment, 'signature_verified': signature_verified},
         )
-        try:
-            create_shipment_for_paid_order(order.id)
-        except IntegrationError:
-            pass  # Stored on the order and retried by the management command.
-    elif status in {'FAILED', 'CANCELLED', 'CANCELED'}:
-        GuestOrder.objects.filter(id=order.id).update(payment_status='FAILED')
-        PaymentAttempt.objects.filter(order=order, session_id=order.payment_session_id).update(status='FAILED', provider_response=payload)
-    event.status, event.processed_at = 'PROCESSED', timezone.now()
-    event.save()
-    return JsonResponse({'ok': True})
-
-
-SHIPMENT_STATUS_MAP = {
-    'SHIPPED': 'SHIPPED', 'IN TRANSIT': 'IN_TRANSIT', 'IN_TRANSIT': 'IN_TRANSIT',
-    'OUT FOR DELIVERY': 'OUT_FOR_DELIVERY', 'OUT_FOR_DELIVERY': 'OUT_FOR_DELIVERY',
-    'DELIVERED': 'DELIVERED', 'DELAYED': 'DELAYED', 'UNDELIVERED': 'UNDELIVERED',
-    'RTO INITIATED': 'RTO_INITIATED', 'RTO_INITIATED': 'RTO_INITIATED',
-    'RTO DELIVERED': 'RTO_DELIVERED', 'RTO_DELIVERED': 'RTO_DELIVERED',
-}
+    locked.refresh_from_db()
+    return locked
 
 
 @csrf_exempt
+@never_cache
 @require_POST
-def logistics_webhook(request):
-    configured_token = settings.SHIPROCKET_WEBHOOK_TOKEN
-    received_token = request.headers.get('x-api-key', '')
-    if not configured_token or not hmac.compare_digest(configured_token, received_token):
-        return error('Invalid logistics webhook token.', 401, 'INVALID_SIGNATURE')
+def razorpay_webhook(request):
+    webhook_secret = settings.RAZORPAY_WEBHOOK_SECRET
+    received_signature = request.headers.get('X-Razorpay-Signature', '').strip()
+    if not webhook_secret or not received_signature:
+        return error('Razorpay webhook is not configured.', 503, 'NOT_CONFIGURED')
+    expected_signature = hmac.new(
+        webhook_secret.encode(), request.body, hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected_signature, received_signature):
+        return error('Invalid Razorpay webhook signature.', 401, 'INVALID_SIGNATURE')
+
     payload = parse_json(request)
     if payload is None:
         return error('Invalid JSON body.')
-    raw = request.body
-    awb = str(payload_value(payload, 'awb', 'awb_code') or '')
-    provider_status = str(payload_value(payload, 'current_status', 'shipment_status', 'status') or 'UNKNOWN')
-    event_key = str(payload_value(payload, 'event_id', 'id') or hashlib.sha256(raw).hexdigest())
-    event, created = IntegrationEvent.objects.get_or_create(
-        provider='SHIPROCKET', event_key=event_key,
-        defaults={'event_type': provider_status, 'payload': payload},
-    )
-    if not created and event.status == 'PROCESSED':
-        return JsonResponse({'ok': True, 'duplicate': True})
-    order = GuestOrder.objects.filter(shiprocket_awb=awb).first()
-    if not order:
-        event.status, event.error, event.processed_at = 'FAILED', 'AWB not found.', timezone.now()
-        event.save()
-        return JsonResponse({'ok': True})  # Provider requires 200; retain failure for reconciliation.
-    normalized = SHIPMENT_STATUS_MAP.get(provider_status.upper().replace('-', ' '), order.shipment_status)
-    event_time = parse_datetime(str(payload_value(payload, 'event_time', 'timestamp', 'updated_at') or '')) or timezone.now()
-    ShipmentEvent.objects.get_or_create(
-        order=order, provider_status=provider_status, event_time=event_time,
-        defaults={'normalized_status': normalized, 'description': str(payload_value(payload, 'activity', 'description') or ''),
-                  'location': str(payload_value(payload, 'location') or ''), 'payload': payload},
-    )
-    order.shipment_status = normalized
-    order.last_tracking_update = event_time
-    if normalized == 'DELIVERED':
-        order.order_status = 'COMPLETED'
-    order.save(update_fields=['shipment_status', 'last_tracking_update', 'order_status', 'updated_at'])
-    event.order, event.status, event.processed_at = order, 'PROCESSED', timezone.now()
-    event.save()
+    event_type = str(payload.get('event') or '')
+    payment = (((payload.get('payload') or {}).get('payment') or {}).get('entity') or {})
+    payment_id = str(payment.get('id') or '')
+    event_key = str(payload.get('id') or f'{event_type}:{payment_id}' or hashlib.sha256(request.body).hexdigest())
+    with transaction.atomic():
+        event, _ = IntegrationEvent.objects.get_or_create(
+            provider='RAZORPAY', event_key=event_key[:128],
+            defaults={'event_type': event_type, 'payload': payload},
+        )
+        event = IntegrationEvent.objects.select_for_update().get(pk=event.pk)
+        if event.status == 'PROCESSED':
+            return JsonResponse({'ok': True, 'duplicate': True})
+
+        razorpay_order_id = str(payment.get('order_id') or '')
+        attempt = PaymentAttempt.objects.select_related('order').filter(
+            provider='RAZORPAY', session_id=razorpay_order_id,
+        ).order_by('-created_at').first()
+        if not attempt:
+            event.status, event.error, event.processed_at = 'FAILED', 'Payment attempt not found.', timezone.now()
+            event.save(update_fields=['status', 'error', 'processed_at'])
+            return error('Payment attempt not found.', 404, 'NOT_FOUND')
+
+        event.order = attempt.order
+        if event_type == 'payment.captured':
+            valid_amount = int(payment.get('amount') or 0) == attempt.order.total * 100
+            valid_currency = str(payment.get('currency') or '').upper() == 'INR'
+            if not valid_amount or not valid_currency:
+                event.status, event.error, event.processed_at = 'FAILED', 'Payment details do not match the order.', timezone.now()
+                event.save(update_fields=['order', 'status', 'error', 'processed_at'])
+                return error('Payment details do not match the order.', 400, 'PAYMENT_MISMATCH')
+            complete_razorpay_payment(attempt.order, attempt, payment)
+        elif event_type == 'payment.failed' and attempt.order.payment_status != 'PAID':
+            PaymentAttempt.objects.filter(id=attempt.id).update(
+                status='FAILED', transaction_id=payment_id, provider_response=payment,
+            )
+
+        event.status, event.error, event.processed_at = 'PROCESSED', '', timezone.now()
+        event.save(update_fields=['order', 'status', 'error', 'processed_at'])
     return JsonResponse({'ok': True})
 
 
-@csrf_exempt
 @require_POST
+@rate_limit(scope='track-order', limit=10, window=300)
 def track_order(request):
     payload = parse_json(request)
     if payload is None:
@@ -734,7 +786,7 @@ def track_order(request):
     mobile = clean_mobile(payload.get('mobile'))
     if not mobile:
         return error('Enter a valid Indian mobile number.')
-    order = GuestOrder.objects.prefetch_related('items', 'shipment_events').filter(
+    order = GuestOrder.objects.prefetch_related('items').filter(
         order_number__iexact=order_number, mobile=mobile,
     ).first()
     if not order:
@@ -744,8 +796,5 @@ def track_order(request):
         'createdAt': order.created_at.isoformat(),
         'items': [{'productId': item.sku, 'title': item.title, 'unitPrice': item.unit_price,
                    'quantity': item.quantity, 'lineTotal': item.line_total} for item in order.items.all()],
-        'trackingEvents': [{'status': item.normalized_status, 'providerStatus': item.provider_status,
-                            'description': item.description, 'location': item.location,
-                            'eventTime': item.event_time.isoformat()} for item in order.shipment_events.all()],
     })
     return JsonResponse(response)

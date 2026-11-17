@@ -12,9 +12,11 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / '.env')
 
 
 # Quick-start development settings - unsuitable for production
@@ -136,35 +138,23 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 
-# Email
-# https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
-
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
-
-# Shiprocket Shipping API (set real values through environment variables).
-SHIPROCKET_API_BASE_URL = os.getenv('SHIPROCKET_API_BASE_URL', 'https://apiv2.shiprocket.in/v1/external')
-SHIPROCKET_API_EMAIL = os.getenv('SHIPROCKET_API_EMAIL', '')
-SHIPROCKET_API_PASSWORD = os.getenv('SHIPROCKET_API_PASSWORD', '')
-SHIPROCKET_PICKUP_LOCATION = os.getenv('SHIPROCKET_PICKUP_LOCATION', '')
-SHIPROCKET_PICKUP_POSTCODE = os.getenv('SHIPROCKET_PICKUP_POSTCODE', '')
-SHIPROCKET_WEBHOOK_TOKEN = os.getenv('SHIPROCKET_WEBHOOK_TOKEN', '')
-SHIPROCKET_DEFAULT_PACKAGE_LENGTH_CM = float(os.getenv('SHIPROCKET_DEFAULT_PACKAGE_LENGTH_CM', '30'))
-SHIPROCKET_DEFAULT_PACKAGE_BREADTH_CM = float(os.getenv('SHIPROCKET_DEFAULT_PACKAGE_BREADTH_CM', '22'))
-SHIPROCKET_DEFAULT_PACKAGE_HEIGHT_CM = float(os.getenv('SHIPROCKET_DEFAULT_PACKAGE_HEIGHT_CM', '5'))
+# Transactional email. Credentials are loaded only from the environment.
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = os.getenv('EMAIL_HOST', '')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() in {'1', 'true', 'yes'}
+EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'False').lower() in {'1', 'true', 'yes'}
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '').replace(' ', '')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'webmaster@localhost')
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '15'))
+PUBLIC_SITE_URL = os.getenv('PUBLIC_SITE_URL', 'https://souvenirpublishers.in').rstrip('/')
 
 # Temporary teacher-resource catalogue access. Override or remove through the environment.
 TEACHER_RESOURCE_BYPASS_CODE = os.getenv('TEACHER_RESOURCE_BYPASS_CODE', '9205406902')
 
-# Fastrr Checkout (values/endpoint come from the custom-stack onboarding kit).
-FASTRR_CREATE_SESSION_URL = os.getenv('FASTRR_CREATE_SESSION_URL', '')
-FASTRR_MERCHANT_ID = os.getenv('FASTRR_MERCHANT_ID', '')
-FASTRR_PUBLIC_KEY = os.getenv('FASTRR_PUBLIC_KEY', '')
-FASTRR_SECRET_KEY = os.getenv('FASTRR_SECRET_KEY', '')
-FASTRR_WEBHOOK_SECRET = os.getenv('FASTRR_WEBHOOK_SECRET', '')
-FASTRR_WEBHOOK_SIGNATURE_HEADER = os.getenv('FASTRR_WEBHOOK_SIGNATURE_HEADER', 'X-Fastrr-Signature')
-FASTRR_SUCCESS_URL = os.getenv('FASTRR_SUCCESS_URL', 'http://127.0.0.1:5173/track-order')
-FASTRR_CANCEL_URL = os.getenv('FASTRR_CANCEL_URL', 'http://127.0.0.1:5173/checkout')
+# Razorpay Standard Checkout. The key secret is never exposed to the frontend.
+RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', '')
+RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', '')
+RAZORPAY_WEBHOOK_SECRET = os.getenv('RAZORPAY_WEBHOOK_SECRET', '')

@@ -1,0 +1,24 @@
+Souvenir Publishers
+
+Your order has been received successfully
+
+Hello {{ order.customer_name }},
+
+Thank you for shopping with Souvenir Publishers. Your payment is confirmed and we have received your order.
+
+Order number: {{ order.order_number }}
+
+Your books
+{% for item in items %}{{ item.title }} — Quantity: {{ item.quantity }} — Rs. {{ item.line_total }}
+{% endfor %}
+Subtotal: Rs. {{ order.subtotal }}
+Delivery: Rs. {{ order.shipping_charge }}
+Total paid: Rs. {{ order.total }}
+
+Delivery: {{ order.get_delivery_type_display }} ({{ delivery_timeline }})
+Address: {{ order.address.line1 }}{% if order.address.line2 %}, {{ order.address.line2 }}{% endif %}{% if order.address.landmark %}, {{ order.address.landmark }}{% endif %}, {{ order.address.city }}, {{ order.address.state }} - {{ order.address.postal_code }}
+
+We will now begin processing your order. Track it at {{ tracking_url }} using order number {{ order.order_number }} and mobile number {{ order.mobile }}.
+
+Regards,
+Souvenir Publishers

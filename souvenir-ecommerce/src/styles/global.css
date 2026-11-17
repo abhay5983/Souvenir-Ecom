@@ -5520,6 +5520,58 @@ tr:last-child td {
   font-size: 1.25rem;
 }
 
+.payment-processing-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(9 25 42 / 72%);
+  backdrop-filter: blur(5px);
+}
+
+.payment-processing-modal {
+  width: min(100%, 440px);
+  padding: 34px 30px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 20px;
+  background: var(--surface, #fff);
+  box-shadow: 0 28px 80px rgb(0 0 0 / 28%);
+  text-align: center;
+}
+
+.payment-processing-modal h2 {
+  margin: 8px 0 12px;
+}
+
+.payment-processing-modal p:not(.eyebrow) {
+  margin: 0 auto 16px;
+  color: var(--ink-600);
+  line-height: 1.65;
+}
+
+.payment-processing-modal small {
+  display: block;
+  color: var(--ink-500);
+  font-weight: 650;
+}
+
+.payment-processing-spinner {
+  display: inline-block;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 18px;
+  border: 5px solid rgb(31 107 79 / 16%);
+  border-top-color: #1f6b4f;
+  border-radius: 50%;
+  animation: payment-processing-spin 0.8s linear infinite;
+}
+
+@keyframes payment-processing-spin {
+  to { transform: rotate(360deg); }
+}
+
 .mobile-cart-bar {
   display: none;
 }

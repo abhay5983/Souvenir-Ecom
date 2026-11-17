@@ -13,6 +13,16 @@ const EMPTY_FORM = {
 };
 const REQUIRED_FIELDS = ["customerName", "mobile", "email", "line1", "city", "state", "postalCode"];
 
+function checkoutAttemptKey(fingerprint) {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(IDEMPOTENCY_STORAGE_KEY) ?? "null");
+    if (saved?.fingerprint === fingerprint && saved?.key) return saved.key;
+  } catch { /* Old checkout keys are replaced below. */ }
+  const key = crypto.randomUUID();
+  sessionStorage.setItem(IDEMPOTENCY_STORAGE_KEY, JSON.stringify({ key, fingerprint }));
+  return key;
+}
+
 function loadCheckoutForm() {
   try {
     const saved = JSON.parse(sessionStorage.getItem(CHECKOUT_STORAGE_KEY) ?? "null");
@@ -30,6 +40,59 @@ function detailsFor(item, catalogue) {
 
 function money(value) {
   return `₹${Number(value).toLocaleString("en-IN")}`;
+}
+
+function openRazorpayCheckout(payment, customer, onPaymentAuthorized) {
+  return new Promise((resolve, reject) => {
+    if (!window.Razorpay) {
+      reject(new Error("Secure payment could not be loaded. Check your connection and try again."));
+      return;
+    }
+
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      callback(value);
+    };
+    let paymentAuthorized = false;
+    const checkout = new window.Razorpay({
+      key: payment.keyId,
+      amount: payment.amount,
+      currency: payment.currency,
+      name: "Souvenir Publishers",
+      description: "Book order payment",
+      order_id: payment.orderId,
+      prefill: {
+        name: customer.customerName.trim(),
+        email: customer.email.trim(),
+        contact: customer.mobile,
+      },
+      theme: { color: "#1f6b4f" },
+      handler: async (result) => {
+        paymentAuthorized = true;
+        onPaymentAuthorized?.();
+        try {
+          const verified = await ecommerceService.verifyPayment(result);
+          finish(resolve, verified);
+        } catch (verificationError) {
+          finish(reject, verificationError);
+        }
+      },
+      modal: {
+        ondismiss: () => {
+          if (!paymentAuthorized) {
+            finish(reject, new Error("Payment was cancelled. Your cart and details have been saved."));
+          }
+        },
+      },
+    });
+    checkout.on("payment.failed", (response) => {
+      const message = response?.error?.description || "Payment failed. Please try again or use another payment method.";
+      finish(reject, new Error(message));
+    });
+    checkout.open();
+  });
 }
 
 function validateField(name, value) {
@@ -71,10 +134,10 @@ function CheckoutPage() {
   const [form, setForm] = useState(loadCheckoutForm);
   const [touched, setTouched] = useState({});
   const [order, setOrder] = useState(null);
+  const [pendingOrder, setPendingOrder] = useState(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [shippingQuote, setShippingQuote] = useState(null);
-  const [checkingDelivery, setCheckingDelivery] = useState(false);
+  const [processingPayment, setProcessingPayment] = useState(false);
 
   const items = useMemo(
     () => (cart ?? []).map((item) => ({ item, details: detailsFor(item, catalogue) })).filter((entry) => entry.details),
@@ -82,8 +145,17 @@ function CheckoutPage() {
   );
   const subtotal = items.reduce((sum, entry) => sum + entry.details.price * entry.item.quantity, 0);
   const selectedDelivery = getDeliveryOption(deliveryOption);
-  const estimatedShipping = shippingQuote?.shippingCharge ?? selectedDelivery.charge;
+  const estimatedShipping = selectedDelivery.charge;
   const total = subtotal + estimatedShipping;
+  const checkoutFingerprint = JSON.stringify({
+    deliveryOption,
+    total,
+    lines: items.map(({ item, details }) => ({
+      productId: item.variantId,
+      quantity: item.quantity,
+      price: details.price,
+    })).sort((left, right) => String(left.productId).localeCompare(String(right.productId))),
+  });
 
   useEffect(() => {
     try { sessionStorage.setItem(CHECKOUT_STORAGE_KEY, JSON.stringify(form)); }
@@ -91,23 +163,14 @@ function CheckoutPage() {
   }, [form]);
 
   useEffect(() => {
-    if (!/^\d{6}$/.test(form.postalCode) || !items.length) return undefined;
-    const timer = window.setTimeout(async () => {
-      setCheckingDelivery(true);
-      try {
-        setShippingQuote(await ecommerceService.shippingQuote({
-          postal_code: form.postalCode,
-          delivery_type: deliveryOption,
-          lines: items.map(({ item }) => ({ product_id: item.variantId, quantity: item.quantity })),
-        }));
-      } catch (requestError) {
-        setShippingQuote({ serviceable: false, message: requestError.message });
-      } finally {
-        setCheckingDelivery(false);
-      }
-    }, 400);
-    return () => window.clearTimeout(timer);
-  }, [deliveryOption, form.postalCode, items]);
+    if (!processingPayment) return undefined;
+    const warnBeforeLeaving = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [processingPayment]);
 
   if (catalogueLoading) return <section className="section compact"><div className="container"><div className="notice neutral">Loading checkout...</div></div></section>;
   if (!items.length && !order) return <Navigate to="/cart" replace />;
@@ -116,7 +179,6 @@ function CheckoutPage() {
     const { name, value } = event.target;
     const normalized = ["mobile", "postalCode"].includes(name) ? value.replace(/\D/g, "") : value;
     setForm((current) => ({ ...current, [name]: normalized }));
-    if (name === "postalCode") setShippingQuote(null);
     setError("");
   }
 
@@ -142,35 +204,58 @@ function CheckoutPage() {
     setSubmitting(true);
     setError("");
     try {
-      let idempotencyKey = sessionStorage.getItem(IDEMPOTENCY_STORAGE_KEY);
-      if (!idempotencyKey) {
-        idempotencyKey = crypto.randomUUID();
-        sessionStorage.setItem(IDEMPOTENCY_STORAGE_KEY, idempotencyKey);
+      let payableOrder = pendingOrder;
+      if (payableOrder) {
+        const payment = await ecommerceService.retryPayment(
+          payableOrder.orderNumber,
+          payableOrder.checkoutMobile,
+        );
+        payableOrder = { ...payableOrder, payment };
+      } else {
+        const idempotencyKey = checkoutAttemptKey(checkoutFingerprint);
+        const created = await ecommerceService.createOrder({
+          idempotency_key: idempotencyKey,
+          customer_name: form.customerName.trim(),
+          mobile: form.mobile,
+          email: form.email.trim(),
+          address: {
+            line1: form.line1.trim(), line2: form.line2.trim(), landmark: form.landmark.trim(),
+            city: form.city.trim(), state: form.state.trim(), postal_code: form.postalCode, country: form.country,
+          },
+          delivery_type: deliveryOption,
+          lines: items.map(({ item }) => ({ product_id: item.variantId, quantity: item.quantity })),
+        });
+        payableOrder = { ...created, checkoutMobile: form.mobile };
       }
-      const created = await ecommerceService.createOrder({
-        idempotency_key: idempotencyKey,
-        customer_name: form.customerName.trim(),
-        mobile: form.mobile,
-        email: form.email.trim(),
-        address: {
-          line1: form.line1.trim(), line2: form.line2.trim(), landmark: form.landmark.trim(),
-          city: form.city.trim(), state: form.state.trim(), postal_code: form.postalCode, country: form.country,
-        },
-        delivery_type: deliveryOption,
-        lines: items.map(({ item }) => ({ product_id: item.variantId, quantity: item.quantity })),
-      });
-      if (created.payment?.configured && created.payment?.checkoutUrl) {
-        window.location.assign(created.payment.checkoutUrl);
-        return;
+      setPendingOrder(payableOrder);
+      if (!payableOrder.payment?.configured) {
+        throw new Error("Online payment is temporarily unavailable. Please try again later.");
       }
-      if (created.payment?.configured && created.payment?.error) throw new Error(created.payment.error);
-      setOrder(created);
+      const backendTotal = Number(payableOrder.total);
+      const paymentTotal = Number(payableOrder.payment.amount) / 100;
+      if (backendTotal !== total || paymentTotal !== backendTotal) {
+        sessionStorage.removeItem(IDEMPOTENCY_STORAGE_KEY);
+        setPendingOrder(null);
+        throw new Error("The book price changed before payment. Refresh the cart and review the updated total before paying.");
+      }
+      const verified = await openRazorpayCheckout(
+        payableOrder.payment,
+        form,
+        () => setProcessingPayment(true),
+      );
+      setOrder(verified);
+      setPendingOrder(null);
       clearCart();
       sessionStorage.removeItem(CHECKOUT_STORAGE_KEY);
       sessionStorage.removeItem(IDEMPOTENCY_STORAGE_KEY);
     } catch (requestError) {
+      if (requestError.code === "STALE_CHECKOUT") {
+        sessionStorage.removeItem(IDEMPOTENCY_STORAGE_KEY);
+        setPendingOrder(null);
+      }
       setError(requestError.message);
     } finally {
+      setProcessingPayment(false);
       setSubmitting(false);
     }
   }
@@ -178,22 +263,47 @@ function CheckoutPage() {
   if (order) {
     return (
       <section className="section compact checkout-page"><div className="container"><div className="card checkout-card checkout-complete">
-        <p className="eyebrow">Order received</p><h1>Thank you for your order</h1>
+        <p className="eyebrow">Payment successful</p><h1>Thank you for your order</h1>
         <p>Your order number is <strong>{order.orderNumber}</strong>.</p>
-        <div className="notice neutral">Payment is pending. You can use your order number and mobile number to check its status.</div>
+        <div className="notice neutral">Your payment has been verified and your order has been received. Keep your order number for future reference.</div>
         <dl className="success-summary"><div><dt>Order total</dt><dd>{money(order.total)}</dd></div><div><dt>Delivery</dt><dd>{order.deliveryLabel} · {order.deliveryTimeline}</dd></div><div><dt>Status</dt><dd>{order.orderStatus.replaceAll("_", " ")}</dd></div></dl>
-        <div className="actions-row"><Link className="button" to="/track-order">Track order</Link><Link className="button secondary" to="/books">Continue shopping</Link></div>
+        <div className="actions-row"><Link className="button" to="/books">Continue shopping</Link></div>
       </div></div></section>
     );
   }
 
   return (
     <section className="section compact checkout-page"><div className="container">
+      {processingPayment && (
+        <div className="payment-processing-backdrop" role="presentation">
+          <section
+            className="payment-processing-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="payment-processing-title"
+            aria-describedby="payment-processing-description"
+          >
+            <span className="payment-processing-spinner" aria-hidden="true" />
+            <p className="eyebrow">Payment received</p>
+            <h2 id="payment-processing-title">Processing your order…</h2>
+            <p id="payment-processing-description">Please keep this page open while we securely verify your payment and confirm your order.</p>
+            <small>Do not refresh the page or press the payment button again.</small>
+          </section>
+        </div>
+      )}
       <nav className="breadcrumbs"><Link to="/cart">Cart</Link><span>/</span><span>Guest checkout</span></nav>
+      <ol className="checkout-progress" aria-label="Checkout progress">
+        <li className="complete"><span>✓</span>Review cart</li>
+        <li className="current" aria-current="step"><span>2</span>Delivery details</li>
+        <li><span>3</span>Secure payment</li>
+      </ol>
       <div className="checkout-layout">
         <form className="checkout-card card" onSubmit={submit} noValidate>
           <p className="eyebrow">Guest checkout</p><h1>Delivery details</h1><p>No account or login is required.</p>
           {error && <div className="notice danger" role="alert">{error}</div>}
+          {pendingOrder && <div className="notice neutral" role="status">
+            Order <strong>{pendingOrder.orderNumber}</strong> is saved. Retry payment below; a fresh secure payment attempt will be created automatically.
+          </div>}
           <div className="form-grid">
             <CheckoutField name="customerName" label="Full name" value={form.customerName} error={fieldError("customerName")} onChange={update} onBlur={blur} autoComplete="name" />
             <CheckoutField name="mobile" label="Mobile number" value={form.mobile} error={fieldError("mobile")} onChange={update} onBlur={blur} type="tel" inputMode="numeric" autoComplete="tel" maxLength={10} />
@@ -206,15 +316,9 @@ function CheckoutPage() {
             <CheckoutField name="postalCode" label="PIN code" value={form.postalCode} error={fieldError("postalCode")} onChange={update} onBlur={blur} inputMode="numeric" autoComplete="postal-code" maxLength={6} />
             <div className="form-field"><label htmlFor="country">Country</label><input id="country" name="country" value={form.country} readOnly /></div>
           </div>
-          {checkingDelivery && <div className="notice neutral">Checking delivery availability...</div>}
-          {shippingQuote && <div className={`notice ${shippingQuote.serviceable ? "neutral" : "danger"}`}>
-            {shippingQuote.serviceable
-              ? `Delivery available${shippingQuote.courierName ? ` via ${shippingQuote.courierName}` : ""}${shippingQuote.etd ? `. Expected ${shippingQuote.etd}` : ""}.`
-              : shippingQuote.message}
-          </div>}
           <div className="checkout-submit-bar">
             <span><small>Total</small><strong>{money(total)}</strong></span>
-            <button className="button" type="submit" disabled={submitting || shippingQuote?.serviceable === false}>{submitting ? "Preparing payment..." : "Continue to payment"}</button>
+            <button className="button" type="submit" disabled={submitting}>{submitting ? "Opening secure payment..." : pendingOrder ? "Retry secure payment" : "Pay securely"}</button>
           </div>
         </form>
         <aside className="checkout-summary card"><p className="eyebrow">Order summary</p><h2>{items.reduce((sum, entry) => sum + entry.item.quantity, 0)} books</h2>

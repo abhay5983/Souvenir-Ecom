@@ -1,12 +1,18 @@
 from django.contrib import admin
 from django.contrib import messages
+from django.conf import settings
+from django.core.management import call_command
 from django.core.exceptions import ValidationError
+from django.db.models import Count
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import path, reverse
+from django.utils import timezone
+from datetime import timedelta
+from io import StringIO
 from .catalog_import import import_catalogue, template_bytes
 from .resource_import import import_resources, template_bytes as resource_template_bytes
-from .models import DigitalLearningRequest, DigitalResource, GuestOrder, IntegrationEvent, OrderItem, PaymentAttempt, Product, PublicOutreachRequest, ShipmentEvent
+from .models import DigitalLearningRequest, DigitalResource, GuestOrder, IntegrationEvent, OrderBackgroundJob, OrderEmailDelivery, OrderItem, OrderNotificationRecipient, PaymentAttempt, Product, PublicOutreachRequest
 
 
 class OrderItemInline(admin.TabularInline):
@@ -19,10 +25,21 @@ class OrderItemInline(admin.TabularInline):
 class GuestOrderAdmin(admin.ModelAdmin):
     list_display = ('order_number', 'customer_name', 'mobile', 'delivery_type', 'total', 'order_status', 'payment_status', 'shipment_status', 'created_at')
     list_filter = ('delivery_type', 'order_status', 'payment_status', 'shipment_status')
-    search_fields = ('order_number', 'customer_name', 'mobile', 'email', 'shiprocket_awb')
+    search_fields = ('order_number', 'customer_name', 'mobile', 'email')
     readonly_fields = ('order_number', 'tracking_token', 'payment_verified_at', 'created_at', 'updated_at')
     inlines = [OrderItemInline]
+    actions = ['resend_order_confirmation']
 
+    @admin.action(description='Send/retry order confirmation email')
+    def resend_order_confirmation(self, request, queryset):
+        paid_orders = queryset.filter(payment_status='PAID')
+        for order_id in paid_orders.values_list('id', flat=True):
+            OrderEmailDelivery.objects.filter(order_id=order_id, status='SENT').update(status='PENDING')
+            OrderBackgroundJob.objects.update_or_create(
+                order_id=order_id, job_type='SEND_CONFIRMATION_EMAILS',
+                defaults={'status': 'PENDING', 'attempts': 0, 'error': '', 'locked_at': None, 'available_at': timezone.now()},
+            )
+        self.message_user(request, f'Confirmation email queued for {paid_orders.count()} paid order(s).')
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
@@ -152,6 +169,120 @@ class PaymentAttemptAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at', 'updated_at', 'provider_response')
 
 
+@admin.register(OrderBackgroundJob)
+class OrderBackgroundJobAdmin(admin.ModelAdmin):
+    list_display = ('order', 'job_type', 'status', 'attempts', 'available_at', 'completed_at')
+    list_filter = ('job_type', 'status')
+    search_fields = ('order__order_number',)
+    readonly_fields = ('order', 'job_type', 'status', 'attempts', 'error', 'available_at', 'locked_at', 'completed_at', 'created_at', 'updated_at')
+
+
+@admin.register(OrderNotificationRecipient)
+class OrderNotificationRecipientAdmin(admin.ModelAdmin):
+    list_display = ('email', 'name', 'is_active', 'updated_at')
+    list_filter = ('is_active',)
+    search_fields = ('email', 'name')
+    list_editable = ('is_active',)
+    ordering = ('email',)
+
+
+@admin.register(OrderEmailDelivery)
+class OrderEmailDeliveryAdmin(admin.ModelAdmin):
+    change_list_template = 'admin/store/orderemaildelivery/change_list.html'
+    list_display = ('order', 'recipient_email', 'recipient_type', 'status', 'sent_at', 'created_at')
+    list_filter = ('status', 'recipient_type')
+    search_fields = ('order__order_number', 'recipient_email')
+    readonly_fields = (
+        'order', 'recipient_email', 'recipient_type', 'status', 'error',
+        'sent_at', 'created_at', 'updated_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def get_urls(self):
+        return [
+            path(
+                'monitor/', self.admin_site.admin_view(self.monitor_view),
+                name='store_orderemaildelivery_monitor',
+            ),
+        ] + super().get_urls()
+
+    def monitor_view(self, request):
+        if request.method == 'POST':
+            action = request.POST.get('action')
+            if action == 'process_now':
+                output = StringIO()
+                call_command(
+                    'process_order_jobs', limit=10, retry_failed_now=True,
+                    stdout=output,
+                )
+                messages.success(request, output.getvalue().strip() or 'Mail queue processed.')
+            elif action == 'retry_job':
+                job = OrderBackgroundJob.objects.filter(pk=request.POST.get('job_id')).first()
+                if job:
+                    OrderEmailDelivery.objects.filter(
+                        order=job.order, status__in=('FAILED', 'SENDING'),
+                    ).update(status='PENDING', error='', sent_at=None, updated_at=timezone.now())
+                    job.status = 'PENDING'
+                    job.error = ''
+                    job.locked_at = None
+                    job.available_at = timezone.now()
+                    job.completed_at = None
+                    job.save(update_fields=[
+                        'status', 'error', 'locked_at', 'available_at',
+                        'completed_at', 'updated_at',
+                    ])
+                    messages.success(request, f'{job.order.order_number} was queued for retry.')
+            elif action == 'queue_missing':
+                created = 0
+                paid_orders = GuestOrder.objects.filter(payment_status='PAID')
+                for order in paid_orders:
+                    _, was_created = OrderBackgroundJob.objects.get_or_create(
+                        order=order, job_type='SEND_CONFIRMATION_EMAILS',
+                    )
+                    created += int(was_created)
+                messages.success(request, f'Queued {created} missing paid-order job(s).')
+            return redirect(reverse('admin:store_orderemaildelivery_monitor'))
+
+        now = timezone.now()
+        jobs = list(
+            OrderBackgroundJob.objects.select_related('order')
+            .prefetch_related('order__email_deliveries')
+            .order_by('-created_at')[:100]
+        )
+        counts = {
+            row['status']: row['total']
+            for row in OrderBackgroundJob.objects.values('status').annotate(total=Count('id'))
+        }
+        oldest_pending = OrderBackgroundJob.objects.filter(
+            status__in=('PENDING', 'PROCESSING'),
+        ).order_by('created_at').first()
+        worker_stalled = bool(
+            oldest_pending and oldest_pending.created_at < now - timedelta(minutes=2)
+        )
+        recent_deliveries = OrderEmailDelivery.objects.select_related('order').order_by('-created_at')[:100]
+        context = {
+            **self.admin_site.each_context(request),
+            'title': 'Mail delivery monitor',
+            'opts': self.model._meta,
+            'jobs': jobs,
+            'counts': counts,
+            'recent_deliveries': recent_deliveries,
+            'worker_stalled': worker_stalled,
+            'oldest_pending': oldest_pending,
+            'smtp': {
+                'backend': settings.EMAIL_BACKEND,
+                'host': settings.EMAIL_HOST,
+                'port': settings.EMAIL_PORT,
+                'tls': settings.EMAIL_USE_TLS,
+                'sender': settings.DEFAULT_FROM_EMAIL,
+            },
+            'active_recipient_count': OrderNotificationRecipient.objects.filter(is_active=True).count(),
+        }
+        return render(request, 'admin/store/orderemaildelivery/monitor.html', context)
+
+
 @admin.register(IntegrationEvent)
 class IntegrationEventAdmin(admin.ModelAdmin):
     list_display = ('provider', 'event_type', 'event_key', 'order', 'status', 'received_at')
@@ -159,9 +290,3 @@ class IntegrationEventAdmin(admin.ModelAdmin):
     search_fields = ('event_key', 'order__order_number')
     readonly_fields = ('payload', 'received_at', 'processed_at')
 
-
-@admin.register(ShipmentEvent)
-class ShipmentEventAdmin(admin.ModelAdmin):
-    list_display = ('order', 'normalized_status', 'provider_status', 'location', 'event_time')
-    search_fields = ('order__order_number', 'provider_status', 'location')
-    readonly_fields = ('payload', 'created_at')

@@ -1,0 +1,25 @@
+NEW PAID ORDER — ACTION REQUIRED
+
+Order: {{ order.order_number }}
+Status: PAID AND VERIFIED
+Received: {{ order_time|date:"d M Y, h:i A" }}
+
+CUSTOMER
+Name: {{ order.customer_name }}
+Mobile: {{ order.mobile }}
+Email: {{ order.email }}
+
+DELIVERY ADDRESS
+{{ order.address.line1 }}{% if order.address.line2 %}, {{ order.address.line2 }}{% endif %}{% if order.address.landmark %}, {{ order.address.landmark }}{% endif %}
+{{ order.address.city }}, {{ order.address.state }} - {{ order.address.postal_code }}
+Delivery: {{ order.get_delivery_type_display }} ({{ delivery_timeline }})
+
+BOOKS
+{% for item in items %}{{ item.title }} | SKU/ISBN: {{ item.sku }} | Qty: {{ item.quantity }} | Rs. {{ item.unit_price }} each | Rs. {{ item.line_total }}
+{% endfor %}
+Total quantity: {{ total_quantity }}
+Subtotal: Rs. {{ order.subtotal }}
+Delivery: Rs. {{ order.shipping_charge }}
+TOTAL PAID: Rs. {{ order.total }}
+
+Payment ID: {{ order.payment_transaction_id }}

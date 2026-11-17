@@ -11,10 +11,10 @@ urlpatterns = [
     path('request-hub', views.request_hub, name='store-request-hub'),
     path('request-hub/<str:source>/<int:request_id>', views.update_hub_request, name='store-update-hub-request'),
     path('integrations/status', views.integration_status, name='store-integration-status'),
-    path('shipping/serviceability', views.shipping_quote, name='store-shipping-quote'),
+    path('create-order', views.create_order, name='store-create-razorpay-order'),
+    path('verify-payment', views.verify_payment, name='store-verify-razorpay-payment'),
+    path('hooks/razorpay/events', views.razorpay_webhook, name='store-razorpay-webhook'),
     path('orders', views.create_order, name='store-create-order'),
     path('orders/track', views.track_order, name='store-track-order'),
     path('orders/<str:order_number>/payment-session', views.retry_payment_session, name='store-payment-session'),
-    path('hooks/payment/events', views.payment_webhook, name='store-payment-webhook'),
-    path('hooks/logistics/events', views.logistics_webhook, name='store-logistics-webhook'),
 ]

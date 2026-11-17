@@ -2,7 +2,7 @@ export const DELIVERY_OPTIONS = {
   STANDARD: {
     code: "STANDARD",
     label: "Standard delivery",
-    charge: 200,
+    charge: 1,
     timeline: "6–8 working days",
   },
   PRIORITY: {

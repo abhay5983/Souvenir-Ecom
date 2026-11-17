@@ -3,8 +3,6 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import { useState } from "react";
-
 import { useCatalogue } from "../context/CatalogueContext.jsx";
 import { useCart } from "../context/CartContext";
 import { DELIVERY_OPTIONS, getDeliveryOption } from "../services/deliveryOptions.js";
@@ -49,7 +47,6 @@ function getCartItemDetails(item, catalogue) {
 }
 
 function CartPage() {
-  const [showCheckoutNotice, setShowCheckoutNotice] = useState(false);
   const { catalogue, loading } = useCatalogue();
   const location = useLocation();
   const navigate = useNavigate();
@@ -213,9 +210,11 @@ const cartItems = cart ?? [];
           </span>
         </div>
 
-        <div className="notice neutral" role="note">
-          <strong>Coming soon:</strong> Direct-to-customer ordering will start on 10 October 2026.
-        </div>
+        <ol className="checkout-progress" aria-label="Checkout progress">
+          <li className="current" aria-current="step"><span>1</span>Review cart</li>
+          <li><span>2</span>Delivery details</li>
+          <li><span>3</span>Secure payment</li>
+        </ol>
 
         <div className="cart-layout">
           <section
@@ -434,33 +433,22 @@ const cartItems = cart ?? [];
             <button
               className="button full-width"
               type="button"
-              onClick={() => setShowCheckoutNotice(true)}
+              onClick={() => navigate("/checkout")}
             >
               Proceed to checkout
             </button>
 
             <p className="field-help">
-              Online payment through Shiprocket
-              will be enabled in the next phase.
+              Secure online payment powered by Razorpay.
             </p>
           </aside>
         </div>
 
         <div className="mobile-cart-bar" aria-label="Cart checkout summary">
           <span><small>Total with delivery</small><strong>{formatInr(orderTotal)}</strong></span>
-          <button className="button" type="button" onClick={() => setShowCheckoutNotice(true)}>Checkout</button>
+          <button className="button" type="button" onClick={() => navigate("/checkout")}>Checkout</button>
         </div>
       </div>
-      {showCheckoutNotice && <div className="resource-modal-backdrop checkout-notice-backdrop" role="presentation" onMouseDown={() => setShowCheckoutNotice(false)}>
-        <section className="resource-modal checkout-notice-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-notice-title" onMouseDown={(event) => event.stopPropagation()}>
-          <button className="resource-modal-close" type="button" aria-label="Close notice" onClick={() => setShowCheckoutNotice(false)}>×</button>
-          <div className="checkout-notice-icon" aria-hidden="true">10</div>
-          <p className="eyebrow">Ordering opens soon</p>
-          <h2 id="checkout-notice-title">Direct-to-customer service starts on 10 October 2026</h2>
-          <p>You can continue exploring our catalogue and keep books in your cart. Online checkout and home delivery will become available from 10 October.</p>
-          <button className="button full-width" type="button" onClick={() => setShowCheckoutNotice(false)}>Continue browsing</button>
-        </section>
-      </div>}
     </section>
   );
 }

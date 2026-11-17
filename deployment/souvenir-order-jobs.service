@@ -1,0 +1,18 @@
+[Unit]
+Description=Souvenir durable order background worker
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=www-data
+WorkingDirectory=/var/www/souvenir-ecom
+EnvironmentFile=/var/www/souvenir-ecom/.env
+ExecStart=/var/www/souvenir-ecom/venv/bin/python manage.py process_order_jobs --watch --poll-interval 5
+Restart=always
+RestartSec=5
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

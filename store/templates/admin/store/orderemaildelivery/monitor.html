@@ -1,0 +1,29 @@
+{% extends "admin/base_site.html" %}
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .mail-grid{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:14px;margin:20px 0}.mail-card,.mail-panel{background:var(--body-bg);border:1px solid var(--hairline-color);border-radius:8px;padding:18px}.mail-card strong{display:block;font-size:26px;margin-top:6px}.mail-panel{margin:18px 0}.mail-alert{padding:15px 18px;border-radius:7px;margin:18px 0;background:#fff3cd;color:#664d03;border:1px solid #ffecb5}.mail-ok{background:#d1e7dd;color:#0f5132;border-color:#badbcc}.mail-table{width:100%;border-collapse:collapse}.mail-table th,.mail-table td{padding:11px 9px;border-bottom:1px solid var(--hairline-color);text-align:left;vertical-align:top}.mail-error{max-width:360px;white-space:normal;color:#ba2121}.mail-actions{display:flex;gap:10px;flex-wrap:wrap}.mail-actions form{margin:0}.mail-badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#eee;font-weight:600}.mail-badge.COMPLETED,.mail-badge.SENT{background:#d1e7dd;color:#0f5132}.mail-badge.FAILED{background:#f8d7da;color:#842029}.mail-badge.PENDING,.mail-badge.PROCESSING{background:#fff3cd;color:#664d03}@media(max-width:800px){.mail-grid{grid-template-columns:1fr 1fr}.mail-table{display:block;overflow-x:auto}}
+</style>
+{% endblock %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> &rsaquo; <a href="{% url 'admin:store_orderemaildelivery_changelist' %}">Email deliveries</a> &rsaquo; Monitor</div>{% endblock %}
+{% block content %}
+  <h1>Mail delivery monitor</h1>
+  {% if worker_stalled %}<div class="mail-alert"><strong>Mail worker appears stopped.</strong> The oldest queued job is {{ oldest_pending.created_at|timesince }} old. Start the background worker or use “Process queue now” below.</div>{% else %}<div class="mail-alert mail-ok"><strong>Queue status looks healthy.</strong> No mail job has been waiting longer than two minutes.</div>{% endif %}
+  <div class="mail-grid">
+    <div class="mail-card">Pending<strong>{{ counts.PENDING|default:0 }}</strong></div>
+    <div class="mail-card">Processing<strong>{{ counts.PROCESSING|default:0 }}</strong></div>
+    <div class="mail-card">Completed<strong>{{ counts.COMPLETED|default:0 }}</strong></div>
+    <div class="mail-card">Failed<strong>{{ counts.FAILED|default:0 }}</strong></div>
+  </div>
+  <div class="mail-panel">
+    <h2>Controls</h2>
+    <div class="mail-actions">
+      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="process_now"><button class="button" type="submit">Process queue now</button></form>
+      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="queue_missing"><button class="button" type="submit">Find missing paid orders</button></form>
+      <a class="button" href="{% url 'admin:store_ordernotificationrecipient_changelist' %}">Manage coordinator recipients</a>
+    </div>
+  </div>
+  <div class="mail-panel"><h2>Mail configuration</h2><p><strong>Backend:</strong> {{ smtp.backend }} &nbsp; <strong>Server:</strong> {{ smtp.host }}:{{ smtp.port }} &nbsp; <strong>TLS:</strong> {{ smtp.tls|yesno:"Yes,No" }} &nbsp; <strong>Sender:</strong> {{ smtp.sender }} &nbsp; <strong>Active coordinators:</strong> {{ active_recipient_count }}</p><p>The SMTP password is intentionally never displayed.</p></div>
+  <div class="mail-panel"><h2>Order mail jobs</h2><table class="mail-table"><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Attempts</th><th>Created</th><th>Last error</th><th>Action</th></tr></thead><tbody>{% for job in jobs %}<tr><td><a href="{% url 'admin:store_guestorder_change' job.order.id %}">{{ job.order.order_number }}</a></td><td>{{ job.order.email }}</td><td><span class="mail-badge {{ job.status }}">{{ job.status }}</span></td><td>{{ job.attempts }}</td><td>{{ job.created_at }}</td><td class="mail-error">{{ job.error|default:"—" }}</td><td>{% if job.status != 'COMPLETED' %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="retry_job"><input type="hidden" name="job_id" value="{{ job.id }}"><button type="submit">Queue retry</button></form>{% else %}—{% endif %}</td></tr>{% empty %}<tr><td colspan="7">No jobs yet.</td></tr>{% endfor %}</tbody></table></div>
+  <div class="mail-panel"><h2>Individual deliveries</h2><table class="mail-table"><thead><tr><th>Order</th><th>Recipient</th><th>Type</th><th>Status</th><th>Sent</th><th>Error</th></tr></thead><tbody>{% for delivery in recent_deliveries %}<tr><td>{{ delivery.order.order_number }}</td><td>{{ delivery.recipient_email }}</td><td>{{ delivery.get_recipient_type_display }}</td><td><span class="mail-badge {{ delivery.status }}">{{ delivery.status }}</span></td><td>{{ delivery.sent_at|default:"—" }}</td><td class="mail-error">{{ delivery.error|default:"—" }}</td></tr>{% empty %}<tr><td colspan="6">No delivery attempts yet.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}
