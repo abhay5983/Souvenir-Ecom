@@ -5,6 +5,7 @@ from django.db import transaction
 from django.utils.text import slugify
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
 from .models import Product
 
 
@@ -88,17 +89,30 @@ def parse_catalogue(file):
         raise ValidationError('The uploaded Excel file could not be read.') from exc
     sheet = workbook['Books'] if 'Books' in workbook.sheetnames else workbook.active
     rows = sheet.iter_rows(values_only=True)
-    supplied_headers = [_text(value).lower() for value in next(rows, [])]
+    raw_headers = [_text(value).lower() for value in next(rows, [])]
+    supplied_headers = [header for header in raw_headers if header]
     missing = REQUIRED.difference(supplied_headers)
     if missing:
         raise ValidationError(f'Missing required columns: {", ".join(sorted(missing))}.')
     unknown = set(supplied_headers).difference(HEADERS)
     if unknown:
         raise ValidationError(f'Unknown columns: {", ".join(sorted(unknown))}. Use the current template.')
-    indexes = {header: supplied_headers.index(header) for header in supplied_headers}
+    duplicate_headers = sorted({header for header in supplied_headers if supplied_headers.count(header) > 1})
+    if duplicate_headers:
+        raise ValidationError(f'Duplicate columns: {", ".join(duplicate_headers)}.')
+    indexes = {header: index for index, header in enumerate(raw_headers) if header}
+    blank_header_indexes = [index for index, header in enumerate(raw_headers) if not header]
     parsed, errors, seen_isbns = [], [], set()
     for row_number, values in enumerate(rows, start=2):
         if not any(value not in (None, '') for value in values):
+            continue
+        blank_data_columns = [
+            index for index in blank_header_indexes
+            if index < len(values) and values[index] not in (None, '')
+        ]
+        if blank_data_columns:
+            columns = ', '.join(get_column_letter(index + 1) for index in blank_data_columns)
+            errors.append(f'Row {row_number}: data was found in column(s) {columns}, but those columns have no header.')
             continue
         data = {header: values[index] if index < len(values) else None for header, index in indexes.items()}
         try:

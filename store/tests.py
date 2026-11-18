@@ -10,6 +10,7 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.test import Client
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from openpyxl import load_workbook
 from .catalog_import import HEADERS, import_catalogue, template_bytes
@@ -382,6 +383,35 @@ class CatalogueImportTests(TestCase):
         self.assertEqual(series['variants'][0]['id'], '9781234567890')
         self.assertEqual(series['variants'][0]['coverImageUrl'], 'https://cdn.example.com/real-book-1.jpg')
         self.assertEqual(series['digitalFeatures'], ['Audio Book', 'Videos'])
+
+    def test_import_ignores_formatted_trailing_columns_with_blank_headers(self):
+        workbook = load_workbook(BytesIO(template_bytes()))
+        sheet = workbook['Books']
+        sheet.column_dimensions['Z'].width = 18
+        sheet['Z1'] = None
+        sheet.append([
+            'Trailing Column Book', 'Simple Series', '', '',
+            '9781234567891', 250, 'English', '',
+        ])
+        output = BytesIO()
+        workbook.save(output)
+        upload = SimpleUploadedFile('books.xlsx', output.getvalue())
+        result = import_catalogue(upload)
+        self.assertEqual(result['created'], 1)
+        self.assertTrue(Product.objects.filter(isbn='9781234567891').exists())
+
+    def test_import_rejects_data_under_a_blank_header(self):
+        workbook = load_workbook(BytesIO(template_bytes()))
+        sheet = workbook['Books']
+        sheet.append([
+            'Invalid Extra Data Book', 'Simple Series', '', '',
+            '9781234567892', 250, 'English', '', 'unexpected value',
+        ])
+        output = BytesIO()
+        workbook.save(output)
+        upload = SimpleUploadedFile('books.xlsx', output.getvalue())
+        with self.assertRaisesMessage(ValidationError, 'columns have no header'):
+            import_catalogue(upload)
 
 
 class DigitalResourceImportTests(TestCase):
