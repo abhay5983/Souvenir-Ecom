@@ -34,7 +34,7 @@ class GuestOrderApiTests(TestCase):
         self.assertEqual(response.status_code, 201, response.content)
         created = response.json()
         self.assertEqual(created['subtotal'], 600)
-        self.assertEqual(created['shippingCharge'], 1)
+        self.assertEqual(created['shippingCharge'], 200)
         self.assertEqual(created['deliveryType'], 'STANDARD')
         tracked = self.post('/api/orders/track', {'order_number': created['orderNumber'], 'mobile': '9876543210'})
         self.assertEqual(tracked.status_code, 200)
@@ -56,8 +56,8 @@ class GuestOrderApiTests(TestCase):
             'lines': [{'product_id': 'book-1', 'quantity': 1}],
         })
         self.assertEqual(response.status_code, 201, response.content)
-        self.assertEqual(response.json()['shippingCharge'], 1)
-        self.assertEqual(response.json()['total'], 301)
+        self.assertEqual(response.json()['shippingCharge'], 500)
+        self.assertEqual(response.json()['total'], 800)
         self.assertEqual(response.json()['deliveryTimeline'], '2–3 working days')
 
     def test_unknown_delivery_option_is_rejected(self):

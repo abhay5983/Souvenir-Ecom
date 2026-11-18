@@ -18,8 +18,8 @@ from .rate_limit import rate_limit
 from .resource_import import normalize_isbn
 
 DELIVERY_OPTIONS = {
-    'STANDARD': {'shippingCharge': 1, 'deliveryLabel': 'Standard delivery', 'deliveryTimeline': '6–8 working days'},
-    'PRIORITY': {'shippingCharge': 1, 'deliveryLabel': 'Priority delivery', 'deliveryTimeline': '2–3 working days'},
+    'STANDARD': {'shippingCharge': 200, 'deliveryLabel': 'Standard delivery', 'deliveryTimeline': '6–8 working days'},
+    'PRIORITY': {'shippingCharge': 500, 'deliveryLabel': 'Priority delivery', 'deliveryTimeline': '2–3 working days'},
 }
 
 
