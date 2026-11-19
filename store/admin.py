@@ -2,12 +2,14 @@ from django.contrib import admin
 from django.contrib import messages
 from django.conf import settings
 from django.core.management import call_command
-from django.core.exceptions import ValidationError
-from django.db.models import Count
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
+from django.db.models import Count, Q
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import path, reverse
 from django.utils import timezone
+from django.utils.html import format_html
 from datetime import timedelta
 from io import StringIO
 from .catalog_import import import_catalogue, template_bytes
@@ -41,18 +43,85 @@ class GuestOrderAdmin(admin.ModelAdmin):
             )
         self.message_user(request, f'Confirmation email queued for {paid_orders.count()} paid order(s).')
 
-@admin.register(Product)
+# Product catalogue operations intentionally live in the dedicated, staff-only
+# /catalogue-manager/ workspace rather than the generic Django admin index.
 class ProductAdmin(admin.ModelAdmin):
     change_list_template = 'admin/store/product/change_list.html'
-    list_display = ('sku', 'title', 'series_title', 'level', 'price_inr', 'stock_quantity', 'public_visibility', 'active')
+    list_display = (
+        'cover_preview', 'sku', 'title', 'series_title', 'subject', 'price_inr',
+        'stock_quantity', 'has_online_features', 'has_resource_links',
+        'public_visibility', 'active',
+    )
+    list_editable = ('price_inr', 'stock_quantity', 'public_visibility', 'active')
     list_filter = ('active', 'public_visibility', 'featured', 'imprint', 'subject', 'category', 'stage')
     search_fields = ('sku', 'isbn', 'title', 'series_title')
+    list_select_related = ('digital_resource',)
+    list_per_page = 50
+    ordering = ('series_title', 'title')
+    actions = ('make_active', 'make_inactive', 'hide_from_store', 'show_in_store')
+
+    @admin.display(description='Cover')
+    def cover_preview(self, obj):
+        if not obj.cover_image_url:
+            return '—'
+        return format_html(
+            '<img src="{}" alt="" style="width:42px;height:56px;object-fit:cover;border-radius:4px">',
+            obj.cover_image_url,
+        )
+
+    @admin.display(boolean=True, description='Online features')
+    def has_online_features(self, obj):
+        return bool(obj.digital_features)
+
+    @admin.display(boolean=True, description='Resource links')
+    def has_resource_links(self, obj):
+        try:
+            resource = obj.digital_resource
+        except DigitalResource.DoesNotExist:
+            return False
+        return bool(resource.student_url or resource.teacher_url)
+
+    @admin.action(description='Activate selected books')
+    def make_active(self, request, queryset):
+        count = queryset.update(active=True)
+        self.message_user(request, f'Activated {count} book(s).')
+
+    @admin.action(description='Deactivate selected books')
+    def make_inactive(self, request, queryset):
+        count = queryset.update(active=False)
+        self.message_user(request, f'Deactivated {count} book(s).')
+
+    @admin.action(description='Hide selected books from public store')
+    def hide_from_store(self, request, queryset):
+        count = queryset.update(public_visibility=False)
+        self.message_user(request, f'Hidden {count} book(s) from the public store.')
+
+    @admin.action(description='Show selected books in public store')
+    def show_in_store(self, request, queryset):
+        count = queryset.update(public_visibility=True, active=True)
+        self.message_user(request, f'Published {count} book(s) in the public store.')
 
     def get_urls(self):
         return [
             path('import/', self.admin_site.admin_view(self.import_view), name='store_product_import'),
             path('template/', self.admin_site.admin_view(self.template_view), name='store_product_template'),
+            path('clear/', self.admin_site.admin_view(self.clear_view), name='store_product_clear'),
         ] + super().get_urls()
+
+    def changelist_view(self, request, extra_context=None):
+        totals = Product.objects.aggregate(
+            total=Count('id'),
+            active=Count('id', filter=Q(active=True, public_visibility=True)),
+        )
+        totals['without_features'] = Product.objects.filter(digital_features=[]).count()
+        resources = DigitalResource.objects.filter(
+            Q(student_url__gt='') | Q(teacher_url__gt=''),
+        ).count()
+        return super().changelist_view(request, {
+            **(extra_context or {}),
+            'catalogue_totals': totals,
+            'resource_book_count': resources,
+        })
 
     def template_view(self, request):
         response = HttpResponse(
@@ -86,6 +155,31 @@ class ProductAdmin(admin.ModelAdmin):
             'template_url': reverse('admin:store_product_template'),
         }
         return render(request, 'admin/store/product/import.html', context)
+
+    def clear_view(self, request):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        total = Product.objects.count()
+        if request.method == 'POST':
+            confirmation = request.POST.get('confirmation', '').strip()
+            if confirmation != 'DELETE ALL BOOKS':
+                messages.error(request, 'Enter DELETE ALL BOOKS exactly to confirm.')
+            else:
+                with transaction.atomic():
+                    deleted = Product.objects.count()
+                    Product.objects.all().delete()
+                messages.success(
+                    request,
+                    f'Catalogue cleared: {deleted} book(s) deleted. Existing order lines were retained.',
+                )
+                return redirect(reverse('admin:store_product_changelist'))
+        context = {
+            **self.admin_site.each_context(request),
+            'title': 'Clear the complete catalogue',
+            'opts': self.model._meta,
+            'total': total,
+        }
+        return render(request, 'admin/store/product/clear.html', context)
 
 
 @admin.register(DigitalResource)

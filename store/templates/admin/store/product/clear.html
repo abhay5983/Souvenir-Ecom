@@ -1,0 +1,24 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> &rsaquo; <a href="{% url 'admin:store_product_changelist' %}">Products</a> &rsaquo; Clear catalogue</div>
+{% endblock %}
+{% block content %}
+<div id="content-main">
+  <div class="module" style="max-width:760px;padding:18px">
+    <h2>Clear {{ total }} catalogue book{{ total|pluralize }}</h2>
+    <p>This removes every book and its digital-resource links. Existing order lines keep their saved title, SKU, quantity, and price, so past invoices and orders remain valid.</p>
+    <p><strong>This action cannot restore deleted books.</strong> Download or retain your Excel catalogue before continuing.</p>
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-row">
+        <label class="required" for="confirmation">Type <code>DELETE ALL BOOKS</code> to confirm:</label>
+        <input id="confirmation" name="confirmation" type="text" autocomplete="off" required style="display:block;margin-top:8px;min-width:280px">
+      </div>
+      <div class="submit-row">
+        <a href="{% url 'admin:store_product_changelist' %}" class="closelink">Cancel</a>
+        <input type="submit" value="Clear catalogue" style="background:#ba2121">
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

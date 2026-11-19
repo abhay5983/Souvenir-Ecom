@@ -181,7 +181,10 @@ class GuestOrder(models.Model):
 
 class OrderItem(models.Model):
     order = models.ForeignKey(GuestOrder, on_delete=models.CASCADE, related_name='items')
-    product = models.ForeignKey(Product, on_delete=models.PROTECT)
+    # Order lines keep their own SKU, title and price snapshot. If a catalogue
+    # entry is removed, retain that historical line instead of blocking the
+    # catalogue deletion.
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True)
     sku = models.CharField(max_length=80)
     title = models.CharField(max_length=180)
     unit_price = models.PositiveIntegerField()

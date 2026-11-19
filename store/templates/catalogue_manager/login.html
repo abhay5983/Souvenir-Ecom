@@ -1,0 +1,27 @@
+{% extends "catalogue_manager/base.html" %}
+{% block title %}Administrator sign in{% endblock %}
+{% block content %}
+<section class="login-card" aria-labelledby="login-title">
+  <div class="login-brand"><span class="brand-mark large">S</span><p>Souvenir Publishers</p></div>
+  <p class="eyebrow">Secure catalogue workspace</p>
+  <h1 id="login-title">Administrator sign in</h1>
+  <p class="muted">Use the same administrator credentials used for the Django administration system.</p>
+  <form method="post" class="stack-form">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.GET.next }}">
+    {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+    <div class="field-group">
+      <label for="{{ form.username.id_for_label }}">Username</label>
+      {{ form.username }}
+      {{ form.username.errors }}
+    </div>
+    <div class="field-group">
+      <label for="{{ form.password.id_for_label }}">Password</label>
+      {{ form.password }}
+      {{ form.password.errors }}
+    </div>
+    <button class="button button-primary button-wide" type="submit">Sign in securely</button>
+  </form>
+  <p class="security-note">Protected area · Sessions expire according to server security settings.</p>
+</section>
+{% endblock %}

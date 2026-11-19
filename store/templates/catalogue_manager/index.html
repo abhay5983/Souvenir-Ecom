@@ -1,0 +1,92 @@
+{% extends "catalogue_manager/base.html" %}
+{% block content %}
+<div class="page-heading">
+  <div><p class="eyebrow">Catalogue operations</p><h1>Books catalogue</h1><p class="muted">Maintain product information, availability and learning resources from one workspace.</p></div>
+  <div class="heading-actions">
+    <a class="button button-secondary" href="{% url 'catalogue-manager-import' %}">Upload Excel</a>
+    {% if can_add %}<a class="button button-primary" href="{% url 'catalogue-manager-book-create' %}">+ Add book</a>{% endif %}
+  </div>
+</div>
+
+<section class="summary-grid" aria-label="Catalogue summary">
+  <a class="summary-card" href="?status=all"><span class="summary-icon blue">▦</span><span><strong>{{ summary.total }}</strong><small>Total books</small></span></a>
+  <a class="summary-card" href="?status=visible"><span class="summary-icon green">✓</span><span><strong>{{ summary.visible }}</strong><small>Visible in store</small></span></a>
+  <a class="summary-card" href="?status=hidden"><span class="summary-icon amber">◌</span><span><strong>{{ summary.hidden }}</strong><small>Hidden or inactive</small></span></a>
+  <a class="summary-card" href="?status=resources"><span class="summary-icon violet">↗</span><span><strong>{{ summary.resources }}</strong><small>With resources</small></span></a>
+</section>
+
+<section class="panel">
+  <form method="get" class="filter-bar" role="search">
+    <div class="search-field"><span aria-hidden="true">⌕</span><input type="search" name="q" value="{{ query }}" placeholder="Search title, series, ISBN or SKU" aria-label="Search catalogue"></div>
+    <select name="subject" aria-label="Filter by subject"><option value="">All subjects</option>{% for item in subjects %}<option value="{{ item }}"{% if item == selected_subject %} selected{% endif %}>{{ item }}</option>{% endfor %}</select>
+    <select name="status" aria-label="Filter by status">
+      <option value="all"{% if status == 'all' %} selected{% endif %}>All statuses</option>
+      <option value="visible"{% if status == 'visible' %} selected{% endif %}>Visible in store</option>
+      <option value="hidden"{% if status == 'hidden' %} selected{% endif %}>Hidden</option>
+      <option value="inactive"{% if status == 'inactive' %} selected{% endif %}>Inactive</option>
+      <option value="resources"{% if status == 'resources' %} selected{% endif %}>Has resources</option>
+      <option value="no-resources"{% if status == 'no-resources' %} selected{% endif %}>No resources</option>
+    </select>
+    <button class="button button-secondary" type="submit">Apply filters</button>
+    {% if query or selected_subject or status != 'all' %}<a class="text-link" href="{% url 'catalogue-manager' %}">Clear</a>{% endif %}
+  </form>
+
+  <form method="post" action="{% url 'catalogue-manager-bulk-action' %}" id="bulk-form">
+    {% csrf_token %}
+    <div class="bulk-bar">
+      <span><strong id="selection-count">0</strong> selected</span>
+      <select name="action" required aria-label="Bulk action"><option value="">Choose bulk action</option>{% if can_change %}<option value="show">Publish in store</option><option value="hide">Hide from store</option><option value="activate">Activate</option><option value="deactivate">Deactivate</option>{% endif %}{% if can_delete %}<option value="delete">Delete permanently</option>{% endif %}</select>
+      <button class="button button-secondary button-small" type="submit">Apply</button>
+    </div>
+    <div class="table-wrap">
+      <table class="catalogue-table">
+        <thead><tr><th class="check-cell"><input id="select-all" type="checkbox" aria-label="Select all books on this page"></th><th>Book</th><th>ISBN</th><th>Subject</th><th>Price</th><th>Stock</th><th>Resources</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>
+        {% for book in page %}
+          <tr>
+            <td class="check-cell"><input class="book-check" type="checkbox" name="selected_books" value="{{ book.id }}" aria-label="Select {{ book.title }}"></td>
+            <td><div class="book-cell">{% if book.cover_image_url %}<img src="{{ book.cover_image_url }}" alt="" loading="lazy">{% else %}<span class="cover-fallback" aria-hidden="true">{{ book.title|first }}</span>{% endif %}<span><strong>{{ book.title }}</strong><small>{{ book.series_title|default:"No series" }}</small></span></div></td>
+            <td><span class="mono">{{ book.isbn|default:"—" }}</span></td>
+            <td>{{ book.subject|default:"—" }}</td>
+            <td><strong>₹{{ book.price_inr }}</strong></td>
+            <td><span class="stock{% if book.stock_quantity < 10 %} stock-low{% endif %}">{{ book.stock_quantity }}</span></td>
+            <td>{% if book.digital_resource.student_url or book.digital_resource.teacher_url %}<span class="resource-state yes">Available</span>{% else %}<span class="resource-state">None</span>{% endif %}</td>
+            <td>{% if book.active and book.public_visibility %}<span class="status status-live">Live</span>{% elif not book.active %}<span class="status status-inactive">Inactive</span>{% else %}<span class="status status-hidden">Hidden</span>{% endif %}</td>
+            <td class="row-actions">{% if can_change %}<a class="icon-button" href="{% url 'catalogue-manager-book-edit' book.id %}" aria-label="Edit {{ book.title }}">Edit</a>{% endif %}{% if can_delete %}<button class="icon-button danger open-delete" type="button" data-url="{% url 'catalogue-manager-book-delete' book.id %}" data-title="{{ book.title }}">Delete</button>{% endif %}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="9"><div class="empty-state"><span>⌕</span><h2>No books found</h2><p>Change the filters or upload your catalogue Excel file.</p><a class="button button-primary" href="{% url 'catalogue-manager-import' %}">Upload catalogue</a></div></td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+  {% if page.paginator.num_pages > 1 %}<nav class="pagination" aria-label="Catalogue pages"><span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span><div>{% if page.has_previous %}<a class="button button-secondary button-small" href="?q={{ query|urlencode }}&subject={{ selected_subject|urlencode }}&status={{ status }}&page={{ page.previous_page_number }}">Previous</a>{% endif %}{% if page.has_next %}<a class="button button-secondary button-small" href="?q={{ query|urlencode }}&subject={{ selected_subject|urlencode }}&status={{ status }}&page={{ page.next_page_number }}">Next</a>{% endif %}</div></nav>{% endif %}
+</section>
+
+<section class="danger-zone">
+  <div><h2>Replace the complete catalogue</h2><p>Download the template, prepare the new catalogue, then clear existing books only when necessary.</p></div>
+  <div class="heading-actions"><a class="button button-secondary" href="{% url 'catalogue-manager-template' %}">Download template</a>{% if can_delete %}<button class="button button-danger" type="button" id="open-clear">Clear all books</button>{% endif %}</div>
+</section>
+
+<dialog id="delete-dialog" class="confirm-dialog"><form method="dialog"><button class="dialog-close" aria-label="Close">×</button></form><p class="eyebrow danger-text">Permanent action</p><h2>Delete this book?</h2><p id="delete-copy"></p><p class="muted">Existing order records will remain intact.</p><form method="post" id="delete-form">{% csrf_token %}<div class="dialog-actions"><button class="button button-secondary" type="button" data-close>Cancel</button><button class="button button-danger" type="submit">Delete book</button></div></form></dialog>
+<dialog id="clear-dialog" class="confirm-dialog"><form method="dialog"><button class="dialog-close" aria-label="Close">×</button></form><p class="eyebrow danger-text">Clear complete catalogue</p><h2>Delete all {{ summary.total }} books?</h2><p>Digital resource links will also be deleted. Existing order records remain intact.</p><form method="post" action="{% url 'catalogue-manager-clear' %}">{% csrf_token %}<label for="clear-confirmation">Type <strong>DELETE ALL BOOKS</strong> to confirm</label><input class="field-control" id="clear-confirmation" name="confirmation" autocomplete="off" required><div class="dialog-actions"><button class="button button-secondary" type="button" data-close>Cancel</button><button class="button button-danger" type="submit">Clear catalogue</button></div></form></dialog>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const checks = [...document.querySelectorAll('.book-check')];
+  const all = document.querySelector('#select-all');
+  const count = document.querySelector('#selection-count');
+  const update = () => { count.textContent = checks.filter(item => item.checked).length; if (all) all.indeterminate = checks.some(item => item.checked) && !checks.every(item => item.checked); };
+  all?.addEventListener('change', () => { checks.forEach(item => item.checked = all.checked); update(); });
+  checks.forEach(item => item.addEventListener('change', update));
+  document.querySelector('#bulk-form')?.addEventListener('submit', event => { const action = event.currentTarget.elements.action.value; if (!checks.some(item => item.checked)) { event.preventDefault(); alert('Select at least one book first.'); } else if (action === 'delete' && !confirm('Permanently delete the selected books? Existing order history will be retained.')) event.preventDefault(); });
+  const deleteDialog = document.querySelector('#delete-dialog');
+  document.querySelectorAll('.open-delete').forEach(button => button.addEventListener('click', () => { document.querySelector('#delete-copy').textContent = `“${button.dataset.title}” will be removed from the online catalogue.`; document.querySelector('#delete-form').action = button.dataset.url; deleteDialog.showModal(); }));
+  const clearDialog = document.querySelector('#clear-dialog');
+  document.querySelector('#open-clear')?.addEventListener('click', () => clearDialog.showModal());
+  document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
+})();
+</script>
+{% endblock %}

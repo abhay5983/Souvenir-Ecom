@@ -1,0 +1,16 @@
+{% extends "catalogue_manager/base.html" %}
+{% block title %}Upload catalogue{% endblock %}
+{% block content %}
+<div class="subpage-heading"><a class="back-link" href="{% url 'catalogue-manager' %}">← Back to catalogue</a><p class="eyebrow">Bulk catalogue update</p><h1>Upload an Excel catalogue</h1><p class="muted">Existing books are matched by ISBN and updated. New ISBNs create new books.</p></div>
+<div class="import-layout">
+  <form method="post" enctype="multipart/form-data" class="form-card upload-card">
+    {% csrf_token %}
+    <div class="upload-icon">⇧</div><h2>Choose your completed template</h2><p>Only .xlsx files up to 5 MB are accepted.</p>
+    <label class="file-picker" for="catalogue-file"><span>Select Excel file</span><input id="catalogue-file" name="catalogue_file" type="file" accept=".xlsx" required></label><p id="file-name" class="muted">No file selected</p>
+    <label class="toggle-card replace-option"><input name="replace_catalogue" type="checkbox"><span><strong>Full replacement mode</strong><small>Deactivate existing books whose ISBNs are absent from this file.</small></span></label>
+    <button class="button button-primary button-wide" type="submit">Validate and upload</button>
+  </form>
+  <aside class="form-card guide-card"><p class="eyebrow">Before uploading</p><h2>Use the current template</h2><ol><li>Download the template below.</li><li>Keep the column names unchanged.</li><li>Use one row per sellable book.</li><li>Keep each ISBN unique.</li><li>Leave optional features and links blank when unavailable.</li></ol><a class="button button-secondary button-wide" href="{% url 'catalogue-manager-template' %}">Download Excel template</a></aside>
+</div>
+{% endblock %}
+{% block scripts %}<script>document.querySelector('#catalogue-file')?.addEventListener('change', event => document.querySelector('#file-name').textContent = event.target.files[0]?.name || 'No file selected');</script>{% endblock %}

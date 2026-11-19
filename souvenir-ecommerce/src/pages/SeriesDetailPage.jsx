@@ -276,26 +276,18 @@ function SeriesDetailPage({
               {series.description}
             </p>
 
-            <div className="chips">
-              {(
-                series.digitalFeatures?.length
-                  ? series.digitalFeatures
-                  : [
-                      `Source page ${
-                        series.sourcePage ??
-                        "pending"
-                      }`,
-                      `${variantCount} verified variants`,
-                    ]
-              ).map((item) => (
-                <span
-                  className="chip"
-                  key={item}
-                >
-                  {item}
-                </span>
-              ))}
-            </div>
+            {series.digitalFeatures?.length > 0 && (
+              <div className="chips">
+                {series.digitalFeatures.map((item) => (
+                  <span
+                    className="chip"
+                    key={item}
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            )}
 
             <form
               className="product-purchase-panel"

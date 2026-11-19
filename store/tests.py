@@ -41,6 +41,25 @@ class GuestOrderApiTests(TestCase):
         self.assertEqual(tracked.status_code, 200)
         self.assertEqual(tracked.json()['items'][0]['title'], 'Test Book')
 
+    def test_catalogue_book_can_be_deleted_without_losing_order_history(self):
+        response = self.post('/api/orders', {
+            'customer_name': 'Test Buyer', 'mobile': '9876543210', 'email': 'buyer@example.com',
+            'address': {'line1': '12 Test Road', 'city': 'Delhi', 'state': 'Delhi', 'postal_code': '110001'},
+            'lines': [{'product_id': 'book-1', 'quantity': 1}],
+        })
+        self.assertEqual(response.status_code, 201, response.content)
+
+        Product.objects.get(sku='book-1').delete()
+
+        item = OrderItem.objects.get(order__order_number=response.json()['orderNumber'])
+        self.assertIsNone(item.product)
+        self.assertEqual(item.title, 'Test Book')
+        tracked = self.post('/api/orders/track', {
+            'order_number': response.json()['orderNumber'], 'mobile': '9876543210',
+        })
+        self.assertEqual(tracked.status_code, 200)
+        self.assertEqual(tracked.json()['items'][0]['title'], 'Test Book')
+
     def test_frontend_price_is_not_accepted(self):
         response = self.post('/api/orders', {
             'customer_name': 'Test Buyer', 'mobile': '9876543210', 'email': 'buyer@example.com',
@@ -356,6 +375,53 @@ class RazorpayPaymentApiTests(TestCase):
         response = self.post('/api/verify-payment', {})
         self.assertEqual(response.status_code, 429)
         self.assertEqual(response.json()['code'], 'RATE_LIMITED')
+
+
+class CatalogueManagerTests(TestCase):
+    def setUp(self):
+        self.admin = get_user_model().objects.create_superuser(
+            username='catalogue-admin', email='catalogue@example.com', password='safe-test-password',
+        )
+        self.product = Product.objects.create(
+            sku='9780000000001', isbn='9780000000001', title='Manager Test Book',
+            series_title='Manager Series', series_code='manager-series', series_slug='manager-series',
+            subject='English', price_inr=250, stock_quantity=20,
+        )
+
+    def test_manager_requires_staff_login(self):
+        response = self.client.get('/catalogue-manager/')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/catalogue-manager/login/', response.url)
+
+    def test_admin_can_sign_in_and_view_catalogue(self):
+        response = self.client.post('/catalogue-manager/login/', {
+            'username': 'catalogue-admin', 'password': 'safe-test-password',
+        })
+        self.assertRedirects(response, '/catalogue-manager/')
+        response = self.client.get('/catalogue-manager/')
+        self.assertContains(response, 'Manager Test Book')
+        self.assertContains(response, 'Books catalogue')
+
+    def test_admin_can_create_book_and_optional_resources(self):
+        self.client.force_login(self.admin)
+        response = self.client.post('/catalogue-manager/books/new/', {
+            'title': 'New Science Book', 'series_title': 'Science Steps',
+            'isbn': '9780000000002', 'subject': 'Science', 'description': 'A clear science course.',
+            'price_inr': '320', 'stock_quantity': '50', 'cover_image_url': '',
+            'digital_features_text': 'Audio book\nPractice sheets',
+            'student_url': 'https://example.com/student', 'teacher_url': '',
+            'public_visibility': 'on', 'active': 'on',
+        })
+        self.assertRedirects(response, '/catalogue-manager/')
+        product = Product.objects.get(isbn='9780000000002')
+        self.assertEqual(product.digital_features, ['Audio book', 'Practice sheets'])
+        self.assertEqual(product.digital_resource.student_url, 'https://example.com/student')
+
+    def test_admin_can_delete_book_from_separate_manager(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(f'/catalogue-manager/books/{self.product.id}/delete/')
+        self.assertRedirects(response, '/catalogue-manager/')
+        self.assertFalse(Product.objects.filter(pk=self.product.pk).exists())
 
 
 class CatalogueImportTests(TestCase):

@@ -26,17 +26,7 @@ function SeriesCard({
     ? `/app/catalog/${series.slug}`
     : `/books/${series.slug}`;
 
-  const cardChips =
-    series.digitalFeatures.length > 0
-      ? series.digitalFeatures.slice(0, 2)
-      : [
-          `Source p. ${series.sourcePage ?? "—"}`,
-          `${series.variants.length} verified ${
-            series.variants.length === 1
-              ? "variant"
-              : "variants"
-          }`,
-        ];
+  const cardChips = (series.digitalFeatures ?? []).slice(0, 2);
 
   return (
     <article className="series-card">
@@ -71,13 +61,15 @@ function SeriesCard({
           {series.gradeRange}
         </p>
 
-        <div className="chips">
-          {cardChips.map((chip) => (
-            <span className="chip" key={chip}>
-              {chip}
-            </span>
-          ))}
-        </div>
+        {cardChips.length > 0 && (
+          <div className="chips">
+            {cardChips.map((chip) => (
+              <span className="chip" key={chip}>
+                {chip}
+              </span>
+            ))}
+          </div>
+        )}
 
         <p className="card-price">
           <strong>
