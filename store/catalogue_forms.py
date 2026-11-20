@@ -17,7 +17,7 @@ class CatalogueBookForm(forms.ModelForm):
         model = Product
         fields = (
             'title', 'series_title', 'isbn', 'subject', 'description', 'price_inr',
-            'stock_quantity', 'cover_image_url', 'featured', 'public_visibility', 'active',
+            'stock_quantity', 'sort_order', 'cover_image_url', 'featured', 'public_visibility', 'active',
         )
         widgets = {
             'description': forms.Textarea(attrs={'rows': 5}),
@@ -26,6 +26,7 @@ class CatalogueBookForm(forms.ModelForm):
         labels = {
             'price_inr': 'Price (₹)',
             'stock_quantity': 'Available stock',
+            'sort_order': 'Display order within series',
             'cover_image_url': 'Cover photo link',
             'public_visibility': 'Show in online catalogue',
             'active': 'Available for purchase',
@@ -45,6 +46,7 @@ class CatalogueBookForm(forms.ModelForm):
         for field in self.fields.values():
             if not isinstance(field.widget, forms.CheckboxInput):
                 field.widget.attrs.setdefault('class', 'field-control')
+        self.fields['sort_order'].widget.attrs.update({'min': 0, 'inputmode': 'numeric'})
 
     def clean_isbn(self):
         isbn = str(self.cleaned_data.get('isbn') or '').replace('-', '').replace(' ', '').upper()

@@ -407,7 +407,7 @@ class CatalogueManagerTests(TestCase):
         response = self.client.post('/catalogue-manager/books/new/', {
             'title': 'New Science Book', 'series_title': 'Science Steps',
             'isbn': '9780000000002', 'subject': 'Science', 'description': 'A clear science course.',
-            'price_inr': '320', 'stock_quantity': '50', 'cover_image_url': '',
+            'price_inr': '320', 'stock_quantity': '50', 'sort_order': '2', 'cover_image_url': '',
             'digital_features_text': 'Audio book\nPractice sheets',
             'student_url': 'https://example.com/student', 'teacher_url': '',
             'public_visibility': 'on', 'active': 'on',
@@ -415,7 +415,31 @@ class CatalogueManagerTests(TestCase):
         self.assertRedirects(response, '/catalogue-manager/')
         product = Product.objects.get(isbn='9780000000002')
         self.assertEqual(product.digital_features, ['Audio book', 'Practice sheets'])
+        self.assertEqual(product.sort_order, 2)
         self.assertEqual(product.digital_resource.student_url, 'https://example.com/student')
+
+    def test_admin_can_save_display_order_and_store_uses_it(self):
+        later_book = Product.objects.create(
+            sku='9780000000003', isbn='9780000000003', title='Alphabetically First',
+            series_title='Manager Series', series_code='manager-series', series_slug='manager-series',
+            subject='English', price_inr=260, stock_quantity=20, sort_order=20,
+        )
+        self.client.force_login(self.admin)
+        response = self.client.post('/catalogue-manager/bulk-action/', {
+            'action': 'save-order',
+            f'sort_order_{self.product.id}': '10',
+            f'sort_order_{later_book.id}': '1',
+        })
+        self.assertRedirects(response, '/catalogue-manager/')
+        self.product.refresh_from_db()
+        later_book.refresh_from_db()
+        self.assertEqual(self.product.sort_order, 10)
+        self.assertEqual(later_book.sort_order, 1)
+        payload = self.client.get('/api/catalogue').json()
+        self.assertEqual(
+            [book['title'] for book in payload['catalogue'][0]['variants']],
+            ['Alphabetically First', 'Manager Test Book'],
+        )
 
     def test_admin_can_delete_book_from_separate_manager(self):
         self.client.force_login(self.admin)

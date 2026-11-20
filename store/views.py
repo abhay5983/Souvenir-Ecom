@@ -56,7 +56,7 @@ OUTREACH_REQUIRED = {
 @require_GET
 def catalogue(request):
     products = Product.objects.filter(active=True, public_visibility=True).order_by(
-        'series_title', 'level', 'title',
+        'series_title', 'sort_order', 'level', 'title',
     )
     grouped = {}
     for product in products:
@@ -110,7 +110,7 @@ def catalogue(request):
 def student_resources(request):
     products = Product.objects.filter(
         active=True, public_visibility=True, digital_resource__student_url__gt='',
-    ).select_related('digital_resource').order_by('series_title', 'title')
+    ).select_related('digital_resource').order_by('series_title', 'sort_order', 'title')
     return JsonResponse({'books': [{
         'isbn': product.isbn,
         'title': product.title,
@@ -154,7 +154,7 @@ def teacher_resource(request):
             and hmac.compare_digest(password, bypass_code)):
         products = Product.objects.filter(
             active=True, public_visibility=True, digital_resource__teacher_url__gt='',
-        ).select_related('digital_resource').order_by('series_title', 'title')
+        ).select_related('digital_resource').order_by('series_title', 'sort_order', 'title')
         return JsonResponse({'accessMode': 'CATALOGUE', 'books': [{
             'isbn': product.isbn, 'title': product.title, 'series': product.series_title,
             'subject': product.subject, 'digitalFeatures': product.digital_features,
@@ -195,7 +195,7 @@ def create_digital_learning_request(request):
         return error('Choose a valid catalogue series and at least one book.')
     products = list(Product.objects.filter(
         active=True, public_visibility=True, sku__in=selected_skus, series_code=series_code,
-    ).order_by('title'))
+    ).order_by('sort_order', 'title'))
     if len(products) != len(set(str(item) for item in selected_skus)):
         return error('One or more selected books are unavailable or do not belong to this series.')
     resource_codes = payload.get('resourceCodes')

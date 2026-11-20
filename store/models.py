@@ -23,6 +23,10 @@ class Product(models.Model):
     featured = models.BooleanField(default=False)
     public_visibility = models.BooleanField(default=True)
     price_inr = models.PositiveIntegerField()
+    sort_order = models.PositiveIntegerField(
+        default=0,
+        help_text='Lower numbers appear first within the same series.',
+    )
     active = models.BooleanField(default=True)
     stock_quantity = models.PositiveIntegerField(default=100)
     hsn_code = models.CharField(max_length=20, blank=True)

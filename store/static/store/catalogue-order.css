@@ -1,0 +1,25 @@
+.order-input {
+  width: 76px;
+  border: 1px solid #cbd5df;
+  border-radius: 7px;
+  padding: 7px 8px;
+  text-align: center;
+}
+
+.order-input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(23, 105, 170, 0.12);
+  outline: 0;
+}
+
+.order-help {
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #e8f2fb;
+  color: var(--blue);
+  font-size: 11px;
+  cursor: help;
+}

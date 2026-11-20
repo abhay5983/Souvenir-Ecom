@@ -55,7 +55,7 @@ def catalogue_logout(request):
 @manager_required
 def catalogue_manager(request):
     _require_permission(request, 'store.view_product')
-    books = Product.objects.select_related('digital_resource').order_by('series_title', 'title')
+    books = Product.objects.select_related('digital_resource').order_by('series_title', 'sort_order', 'title')
     query = request.GET.get('q', '').strip()
     status = request.GET.get('status', 'all')
     subject = request.GET.get('subject', '').strip()
@@ -144,6 +144,32 @@ def catalogue_book_delete(request, product_id):
 def catalogue_bulk_action(request):
     ids = request.POST.getlist('selected_books')
     action = request.POST.get('action', '')
+    if action == 'save-order':
+        _require_permission(request, 'store.change_product')
+        requested_orders = {}
+        for key, value in request.POST.items():
+            if not key.startswith('sort_order_'):
+                continue
+            try:
+                product_id = int(key.removeprefix('sort_order_'))
+                sort_order = int(value)
+            except (TypeError, ValueError):
+                messages.error(request, 'Display order must be a whole number of zero or more.')
+                return redirect('catalogue-manager')
+            if sort_order < 0 or sort_order > 99999:
+                messages.error(request, 'Display order must be between 0 and 99,999.')
+                return redirect('catalogue-manager')
+            requested_orders[product_id] = sort_order
+        products = Product.objects.in_bulk(requested_orders)
+        changed = []
+        for product_id, product in products.items():
+            product.sort_order = requested_orders[product_id]
+            changed.append(product)
+        if changed:
+            Product.objects.bulk_update(changed, ['sort_order'])
+        messages.success(request, f'Display order saved for {len(changed)} book(s).')
+        return redirect('catalogue-manager')
+    action = request.POST.get('bulk_action', '')
     if not ids:
         messages.warning(request, 'Select at least one book first.')
         return redirect('catalogue-manager')
