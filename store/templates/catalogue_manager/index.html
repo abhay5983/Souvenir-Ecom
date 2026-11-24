@@ -3,6 +3,7 @@
 <div class="page-heading">
   <div><p class="eyebrow">Catalogue operations</p><h1>Books catalogue</h1><p class="muted">Maintain product information, availability and learning resources from one workspace.</p></div>
   <div class="heading-actions">
+    {% if request.user.is_superuser %}<a class="button button-secondary" href="{% url 'catalogue-manager-coordinators' %}">Coordinator accounts</a>{% endif %}
     <a class="button button-secondary" href="{% url 'catalogue-manager-import' %}">Upload Excel</a>
     {% if can_add %}<a class="button button-primary" href="{% url 'catalogue-manager-book-create' %}">+ Add book</a>{% endif %}
   </div>

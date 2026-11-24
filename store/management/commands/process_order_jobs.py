@@ -7,7 +7,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from store.models import OrderBackgroundJob
-from store.order_email import send_order_confirmation_emails
+from store.order_email import send_order_confirmation_emails, send_order_status_email
 
 
 class Command(BaseCommand):
@@ -42,7 +42,12 @@ class Command(BaseCommand):
             job = self._claim()
             if not job:
                 break
-            succeeded = send_order_confirmation_emails(job.order_id)
+            if job.job_type == 'SEND_STATUS_EMAIL' and job.status_history_id:
+                succeeded = send_order_status_email(job.status_history.customer_notification.id)
+                failure_message = 'Customer status email failed.'
+            else:
+                succeeded = send_order_confirmation_emails(job.order_id)
+                failure_message = 'One or more confirmation emails failed.'
             now = timezone.now()
             if succeeded:
                 OrderBackgroundJob.objects.filter(pk=job.pk).update(
@@ -51,7 +56,7 @@ class Command(BaseCommand):
             else:
                 delay_minutes = min(2 ** min(job.attempts, 6), 60)
                 OrderBackgroundJob.objects.filter(pk=job.pk).update(
-                    status='FAILED', error='One or more confirmation emails failed.',
+                    status='FAILED', error=failure_message,
                     available_at=now + timedelta(minutes=delay_minutes), locked_at=None, updated_at=now,
                 )
             processed += 1

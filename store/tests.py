@@ -14,7 +14,7 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from openpyxl import load_workbook
 from .catalog_import import HEADERS, import_catalogue, template_bytes
-from .models import DigitalLearningRequest, DigitalResource, GuestOrder, IntegrationEvent, OrderBackgroundJob, OrderItem, OrderNotificationRecipient, PaymentAttempt, Product, PublicOutreachRequest
+from .models import CoordinatorProfile, DigitalLearningRequest, DigitalResource, GuestOrder, IntegrationEvent, OrderBackgroundJob, OrderItem, OrderNotificationRecipient, OrderStatusHistory, OrderStatusNotification, PaymentAttempt, Product, PublicOutreachRequest
 from .resource_import import HEADERS as RESOURCE_HEADERS, import_resources, template_bytes as resource_template_bytes
 
 
@@ -446,6 +446,102 @@ class CatalogueManagerTests(TestCase):
         response = self.client.post(f'/catalogue-manager/books/{self.product.id}/delete/')
         self.assertRedirects(response, '/catalogue-manager/')
         self.assertFalse(Product.objects.filter(pk=self.product.pk).exists())
+
+
+class CoordinatorOrderTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.admin = User.objects.create_superuser('admin-coordinator', 'admin@example.com', 'admin-password')
+        self.coordinator = User.objects.create_user('north-coordinator', password='coordinator-password', first_name='North Coordinator')
+        self.profile = CoordinatorProfile.objects.create(
+            user=self.coordinator, states=['Delhi'], mobile='9876543210', is_active=True,
+        )
+        self.delhi_order = GuestOrder.objects.create(
+            customer_name='Delhi Buyer', mobile='9876543211', email='delhi@example.com',
+            address={'line1': '1 Delhi Road', 'city': 'Delhi', 'state': 'Delhi', 'postal_code': '110001'},
+            subtotal=200, shipping_charge=200, total=400, payment_status='PAID', order_status='PAID',
+        )
+        self.maharashtra_order = GuestOrder.objects.create(
+            customer_name='Mumbai Buyer', mobile='9876543212', email='mumbai@example.com',
+            address={'line1': '2 Mumbai Road', 'city': 'Mumbai', 'state': 'Maharashtra', 'postal_code': '400001'},
+            subtotal=200, shipping_charge=200, total=400, payment_status='PAID', order_status='PAID',
+        )
+
+    def test_admin_can_create_coordinator_from_catalogue_manager(self):
+        self.client.force_login(self.admin)
+        response = self.client.post('/catalogue-manager/coordinators/new/', {
+            'first_name': 'South Coordinator', 'username': 'south-coordinator',
+            'email': 'south@example.com', 'mobile': '9876543213',
+            'states': ['Karnataka', 'Tamil Nadu'], 'password': 'strong-password', 'is_active': 'on',
+        })
+        self.assertRedirects(response, '/catalogue-manager/coordinators/')
+        profile = CoordinatorProfile.objects.get(user__username='south-coordinator')
+        self.assertEqual(profile.states, ['Karnataka', 'Tamil Nadu'])
+        self.assertFalse(profile.user.is_staff)
+
+    def test_coordinator_sees_only_paid_orders_from_assigned_states(self):
+        self.client.force_login(self.coordinator)
+        response = self.client.get('/coordinator/')
+        self.assertContains(response, self.delhi_order.order_number)
+        self.assertNotContains(response, self.maharashtra_order.order_number)
+
+    def test_coordinator_cannot_open_order_from_unassigned_state(self):
+        self.client.force_login(self.coordinator)
+        response = self.client.get(f'/coordinator/orders/{self.maharashtra_order.id}/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_status_update_is_audited_and_visible_to_customer(self):
+        self.client.force_login(self.coordinator)
+        response = self.client.post(f'/coordinator/orders/{self.delhi_order.id}/', {
+            'shipment_status': 'SHIPPED', 'courier_name': 'Trusted Courier',
+            'courier_id': 'AWB123', 'customer_message': 'Your books have left our warehouse.',
+            'internal_note': 'Packed and checked by operations.',
+        })
+        self.assertRedirects(response, f'/coordinator/orders/{self.delhi_order.id}/')
+        history = OrderStatusHistory.objects.get(order=self.delhi_order)
+        self.assertEqual(history.changed_by, self.coordinator)
+        self.client.logout()
+        tracked = self.client.post('/api/orders/track', json.dumps({
+            'order_number': self.delhi_order.order_number, 'mobile': self.delhi_order.mobile,
+        }), content_type='application/json')
+        self.assertEqual(tracked.status_code, 200, tracked.content)
+        self.assertEqual(tracked.json()['shipmentStatus'], 'SHIPPED')
+        self.assertEqual(tracked.json()['statusHistory'][0]['message'], 'Your books have left our warehouse.')
+        self.assertNotIn('internal', json.dumps(tracked.json()).lower())
+
+    @override_settings(
+        EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+        DEFAULT_FROM_EMAIL='Souvenir Publishers <orders@example.com>',
+        PUBLIC_SITE_URL='https://souvenirpublishers.in',
+    )
+    def test_coordinator_can_queue_trackon_status_email(self):
+        self.client.force_login(self.coordinator)
+        response = self.client.post(f'/coordinator/orders/{self.delhi_order.id}/', {
+            'shipment_status': 'SHIPPED', 'courier_id': 'TRACKON12345',
+            'customer_message': 'Your books are on the way.', 'internal_note': 'Handover complete.',
+            'action': 'save_send',
+        })
+        self.assertRedirects(response, f'/coordinator/orders/{self.delhi_order.id}/')
+        notification = OrderStatusNotification.objects.get()
+        job = OrderBackgroundJob.objects.get(job_type='SEND_STATUS_EMAIL')
+        self.assertEqual(job.status_history, notification.status_history)
+        call_command('process_order_jobs')
+        notification.refresh_from_db()
+        self.assertEqual(notification.status, 'SENT')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('TRACKON12345', mail.outbox[0].body)
+        self.assertIn('https://www.trackon.in/data/SingleShipment', mail.outbox[0].body)
+        self.assertNotIn('Handover complete', mail.outbox[0].body)
+
+    def test_shipped_status_requires_trackon_awb(self):
+        self.client.force_login(self.coordinator)
+        response = self.client.post(f'/coordinator/orders/{self.delhi_order.id}/', {
+            'shipment_status': 'SHIPPED', 'courier_id': '', 'action': 'save_send',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Enter the Trackon AWB number')
+        self.assertFalse(OrderStatusHistory.objects.filter(order=self.delhi_order).exists())
+        self.assertFalse(OrderStatusNotification.objects.exists())
 
 
 class CatalogueImportTests(TestCase):

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 
 import Brand from "../common/Brand";
+import CatalogueIcon from "../common/CatalogueIcon";
 import PublicNavigation from "./PublicNavigation";
 
 function Header({
@@ -68,7 +69,7 @@ function Header({
                 cartCount === 1 ? "book" : "books"
               }`}
             >
-              <span aria-hidden="true">▣</span>
+              <CatalogueIcon name="cart" />
               <span>Cart</span>
               <strong>{cartCount}</strong>
             </NavLink>
@@ -78,7 +79,7 @@ function Header({
               to={accountPath}
               aria-label={accountLabel}
             >
-              ◎ {accountLabel}
+              <CatalogueIcon name="account" /> {accountLabel}
             </Link>}
 
             <button
@@ -89,7 +90,7 @@ function Header({
               aria-label="Open navigation menu"
               onClick={openMenu}
             >
-              ☰
+              <CatalogueIcon name="menu" size={22} />
             </button>
           </div>
         </div>
@@ -121,7 +122,7 @@ function Header({
             aria-label="Close navigation menu"
             onClick={closeMenu}
           >
-            ×
+            <CatalogueIcon name="close" size={22} />
           </button>
         </div>
 
@@ -135,7 +136,7 @@ function Header({
           to="/cart"
           onClick={closeMenu}
         >
-          <span aria-hidden="true">▣</span>
+          <CatalogueIcon name="cart" />
           <span>Cart</span>
           <strong>{cartCount}</strong>
         </Link>
@@ -145,7 +146,7 @@ function Header({
           to={accountPath}
           onClick={closeMenu}
         >
-          {accountLabel}
+          <CatalogueIcon name="account" /> {accountLabel}
         </Link>}
       </aside>
     </>

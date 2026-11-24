@@ -5,25 +5,30 @@ import {
 } from "react-router-dom";
 
 import PageHero from "../components/common/PageHero";
+import CatalogueIcon from "../components/common/CatalogueIcon";
 import SeriesCard from "../components/catalogue/SeriesCard";
 
 import { useCatalogue } from "../context/CatalogueContext.jsx";
 
 const FILTER_KEYS = [
   "query",
-  "imprint",
-  "category",
+  "classLevel",
   "subject",
-  "stage",
-  "feature",
+  "series",
+  "resources",
+  "sort",
 ];
+
+const PARAMETER_NAMES = {
+  query: "q",
+  classLevel: "class",
+};
 
 function getFiltersFromSearchParams(searchParams) {
   const filters = {};
 
   FILTER_KEYS.forEach((key) => {
-    const parameterName =
-      key === "query" ? "q" : key;
+    const parameterName = PARAMETER_NAMES[key] ?? key;
 
     const value = searchParams
       .get(parameterName)
@@ -43,8 +48,35 @@ function matchesText(value, query) {
     .includes(query.toLocaleLowerCase());
 }
 
+function getVariantClassLevel(variant) {
+  const savedLevel = String(variant.level ?? "").trim();
+  if (savedLevel) return savedLevel;
+
+  const match = String(variant.title ?? "").match(
+    /\b(?:class|grade)\s*[-:]?\s*(nursery|lkg|ukg|[1-9]|1[0-2])\b/i,
+  );
+  if (!match) return "";
+
+  const value = match[1].toUpperCase();
+  return `Class ${value}`;
+}
+
+function getActiveFilterLabel(name, value) {
+  if (name === "query") return `Search: ${value}`;
+  if (name === "classLevel") return `Class: ${value}`;
+  if (name === "subject") return `Subject: ${value}`;
+  if (name === "series") return `Series: ${value}`;
+  if (name === "resources") return value === "available" ? "Digital resources" : "Print only";
+  if (name === "sort") return ({
+    title: "Book name A–Z",
+    "price-low": "Price: low to high",
+    "price-high": "Price: high to low",
+  })[value] ?? value;
+  return value;
+}
+
 function searchCatalogue(catalogue, filters) {
-  return catalogue.filter((series) => {
+  const filtered = catalogue.filter((series) => {
     if (!series.publicVisibility) {
       return false;
     }
@@ -52,10 +84,7 @@ function searchCatalogue(catalogue, filters) {
     if (filters.query) {
       const queryMatches = [
         series.title,
-        series.imprint,
         series.subject,
-        series.category,
-        series.stage,
         series.gradeRange,
         series.description,
         ...(series.digitalFeatures ?? []),
@@ -74,15 +103,10 @@ function searchCatalogue(catalogue, filters) {
     }
 
     if (
-      filters.imprint &&
-      series.imprint !== filters.imprint
-    ) {
-      return false;
-    }
-
-    if (
-      filters.category &&
-      series.category !== filters.category
+      filters.classLevel &&
+      !(series.variants ?? []).some(
+        (variant) => getVariantClassLevel(variant) === filters.classLevel,
+      )
     ) {
       return false;
     }
@@ -95,23 +119,47 @@ function searchCatalogue(catalogue, filters) {
     }
 
     if (
-      filters.stage &&
-      series.stage !== filters.stage
+      filters.series &&
+      series.title !== filters.series
     ) {
       return false;
     }
 
     if (
-      filters.feature &&
-      !(series.digitalFeatures ?? []).includes(
-        filters.feature,
-      )
+      filters.resources === "available" &&
+      !series.hasResources
+    ) {
+      return false;
+    }
+
+    if (
+      filters.resources === "print-only" &&
+      series.hasResources
     ) {
       return false;
     }
 
     return true;
   });
+
+  if (filters.sort === "title") {
+    return [...filtered].sort((left, right) =>
+      left.title.localeCompare(right.title, undefined, { sensitivity: "base" }),
+    );
+  }
+
+  if (filters.sort === "price-low" || filters.sort === "price-high") {
+    const minimumPrice = (series) => Math.min(
+      ...(series.variants ?? []).map((variant) => variant.priceINR).filter(Number.isFinite),
+      Number.MAX_SAFE_INTEGER,
+    );
+    const direction = filters.sort === "price-low" ? 1 : -1;
+    return [...filtered].sort((left, right) =>
+      (minimumPrice(left) - minimumPrice(right)) * direction,
+    );
+  }
+
+  return filtered;
 }
 
 function SelectFilter({
@@ -121,11 +169,13 @@ function SelectFilter({
   value,
   onChange,
   formatOption = (option) => option,
+  allLabel = "All",
+  icon = "filters",
 }) {
   return (
     <div className="form-field">
       <label htmlFor={`filter-${name}`}>
-        {label}
+        <span className="filter-label"><CatalogueIcon name={icon} />{label}</span>
       </label>
 
       <select
@@ -136,7 +186,7 @@ function SelectFilter({
           onChange(name, event.target.value);
         }}
       >
-        <option value="All">All</option>
+        <option value="All">{allLabel}</option>
 
         {options.map((option) => (
           <option
@@ -155,7 +205,7 @@ function BooksPage({
   authenticated = false,
 }) {
   const { catalogue, meta: catalogueMeta, filters: catalogueFilters, loading, error } = useCatalogue();
-  const { categories, features, imprints, stages, subjects } = catalogueFilters;
+  const { subjects } = catalogueFilters;
   const [searchParams, setSearchParams] =
     useSearchParams();
 
@@ -171,6 +221,21 @@ function BooksPage({
   const results = useMemo(() => {
     return searchCatalogue(catalogue, filters);
   }, [catalogue, filters]);
+
+  const classLevels = useMemo(() => [...new Set(
+    catalogue.flatMap((series) =>
+      (series.variants ?? []).map(getVariantClassLevel).filter(Boolean),
+    ),
+  )].sort((left, right) => left.localeCompare(right, undefined, { numeric: true })), [catalogue]);
+
+  const seriesOptions = useMemo(() => [...new Set(
+    catalogue.map((series) => series.title).filter(Boolean),
+  )].sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" })), [catalogue]);
+
+  const visibleBookCount = useMemo(() => results.reduce(
+    (total, series) => total + (series.variants?.length ?? 0),
+    0,
+  ), [results]);
 
   const title = authenticated
     ? "Account catalogue"
@@ -191,17 +256,11 @@ function BooksPage({
       );
     }
 
-    [
-      "imprint",
-      "category",
-      "subject",
-      "stage",
-      "feature",
-    ].forEach((key) => {
+    ["classLevel", "subject", "series", "resources", "sort"].forEach((key) => {
       const value = nextFilters[key];
 
       if (value && value !== "All") {
-        nextSearchParams.set(key, value);
+        nextSearchParams.set(PARAMETER_NAMES[key] ?? key, value);
       }
     });
 
@@ -235,6 +294,10 @@ function BooksPage({
 
   function clearFilters() {
     setSearchParams({}, { replace: true });
+  }
+
+  function removeFilter(name) {
+    handleFilterChange(name, "All");
   }
 
   function openFilters() {
@@ -318,7 +381,7 @@ function BooksPage({
             }}
           >
             <label className="search-field">
-              <span aria-hidden="true">⌕</span>
+              <span aria-hidden="true"><CatalogueIcon name="search" /></span>
 
               <span className="sr-only">
                 Search catalogue
@@ -328,7 +391,7 @@ function BooksPage({
                 name="query"
                 type="search"
                 value={filters.query ?? ""}
-                placeholder="Search catalogue"
+                placeholder="Search by book, series, subject or ISBN"
                 autoComplete="off"
                 onChange={handleSearchChange}
               />
@@ -341,9 +404,26 @@ function BooksPage({
               aria-controls="catalogue-filters"
               onClick={openFilters}
             >
-              Filters
+              <CatalogueIcon name="filters" /> Filters
             </button>
           </form>
+
+          {Object.keys(filters).length > 0 && (
+            <div className="active-catalogue-filters" aria-label="Active catalogue filters">
+              {Object.entries(filters).map(([name, value]) => (
+                <button
+                  className="active-filter-chip"
+                  type="button"
+                  key={name}
+                  onClick={() => removeFilter(name)}
+                  aria-label={`Remove ${getActiveFilterLabel(name, value)} filter`}
+                >
+                  {getActiveFilterLabel(name, value)} <span aria-hidden="true">×</span>
+                </button>
+              ))}
+              <button className="clear-filter-link" type="button" onClick={clearFilters}>Clear all</button>
+            </div>
+          )}
 
           <div className="catalogue-layout">
             <button
@@ -369,7 +449,7 @@ function BooksPage({
               tabIndex={-1}
             >
               <div className="filters-header">
-                <h2>Filter books</h2>
+                <h2><CatalogueIcon name="filters" /> Filter books</h2>
 
                 <button
                   className="button ghost small"
@@ -380,21 +460,17 @@ function BooksPage({
                 </button>
               </div>
 
-              <SelectFilter
-                name="imprint"
-                label="Imprint"
-                options={imprints}
-                value={filters.imprint}
-                onChange={handleFilterChange}
-              />
-
-              <SelectFilter
-                name="category"
-                label="Category"
-                options={categories}
-                value={filters.category}
-                onChange={handleFilterChange}
-              />
+              {classLevels.length > 0 && (
+                <SelectFilter
+                  name="classLevel"
+                  label="Class/Grade"
+                  options={classLevels}
+                  value={filters.classLevel}
+                  onChange={handleFilterChange}
+                  allLabel="All classes"
+                  icon="class"
+                />
+              )}
 
               <SelectFilter
                 name="subject"
@@ -402,23 +478,45 @@ function BooksPage({
                 options={subjects}
                 value={filters.subject}
                 onChange={handleFilterChange}
+                allLabel="All subjects"
+                icon="subject"
                 formatOption={(option) => option.trim().toLowerCase() === "amber" ? "Semester Series" : option}
               />
 
               <SelectFilter
-                name="stage"
-                label="Learning stage"
-                options={stages}
-                value={filters.stage}
+                name="series"
+                label="Series"
+                options={seriesOptions}
+                value={filters.series}
                 onChange={handleFilterChange}
+                allLabel="All series"
+                icon="series"
               />
 
               <SelectFilter
-                name="feature"
-                label="Digital feature"
-                options={features}
-                value={filters.feature}
+                name="resources"
+                label="Resource availability"
+                options={["available", "print-only"]}
+                value={filters.resources}
                 onChange={handleFilterChange}
+                allLabel="All books"
+                icon="resources"
+                formatOption={(option) => option === "available" ? "Digital resources available" : "Print only"}
+              />
+
+              <SelectFilter
+                name="sort"
+                label="Sort by"
+                options={["title", "price-low", "price-high"]}
+                value={filters.sort}
+                onChange={handleFilterChange}
+                allLabel="Recommended order"
+                icon="sort"
+                formatOption={(option) => ({
+                  title: "Book name A–Z",
+                  "price-low": "Price: low to high",
+                  "price-high": "Price: high to low",
+                })[option]}
               />
 
               <button
@@ -437,16 +535,14 @@ function BooksPage({
                   aria-live="polite"
                   aria-atomic="true"
                 >
+                  <CatalogueIcon name="books" />
                   {results.length}{" "}
                   {results.length === 1
                     ? "series"
                     : "series"}
                 </strong>
 
-                <span>
-                  {catalogueMeta.variantCount} verified
-                  variants
-                </span>
+                <span>{visibleBookCount} books available</span>
               </div>
 
               {results.length > 0 ? (
@@ -467,7 +563,7 @@ function BooksPage({
 
                   <p>
                     Try a broader search, remove a
-                    filter or browse all categories and
+                    filter or browse all classes and
                     subjects.
                   </p>
 

@@ -56,12 +56,12 @@ function HomePage() {
                 <span aria-hidden="true">→</span>
               </Link>
 
-              <Link
+              <a
                 className="button secondary"
-                to="/digital-learning"
+                href="https://souvenirdata.s3.ap-south-1.amazonaws.com/ebooks/souvenir_catalogue_2027-28_flipbook_20261104_051121/Souvenir_Catalogue_2027-28_Flipbook/index.html#p=48"
               >
-                Digital Learning
-              </Link>
+                Catalogue
+              </a>
             </div>
 
             <div

@@ -6,7 +6,7 @@ from django.db import transaction
 from django.template.loader import render_to_string
 from django.utils import timezone
 
-from .models import GuestOrder, OrderEmailDelivery, OrderNotificationRecipient
+from .models import GuestOrder, OrderEmailDelivery, OrderNotificationRecipient, OrderStatusNotification
 
 logger = logging.getLogger(__name__)
 
@@ -84,3 +84,47 @@ def send_order_confirmation_emails(order_id):
     except Exception:
         logger.exception('Order confirmation email processing failed for order id %s', order_id)
         return False
+
+
+def send_order_status_email(notification_id):
+    try:
+        with transaction.atomic():
+            notification = OrderStatusNotification.objects.select_for_update().select_related(
+                'status_history__order', 'status_history__changed_by',
+            ).get(pk=notification_id)
+            if notification.status == 'SENT':
+                return True
+            notification.status = 'SENDING'
+            notification.attempts += 1
+            notification.error = ''
+            notification.save(update_fields=['status', 'attempts', 'error', 'updated_at'])
+
+        history = notification.status_history
+        order = history.order
+        if order.payment_status != 'PAID' or not notification.recipient_email:
+            raise RuntimeError('A paid order and customer email are required.')
+        context = {
+            'order': order,
+            'history': history,
+            'trackon_url': 'https://www.trackon.in/data/SingleShipment',
+            'site_tracking_url': f'{settings.PUBLIC_SITE_URL}/track-order',
+        }
+        message = EmailMultiAlternatives(
+            subject=f'Your order is now {history.get_shipment_status_display()} — {order.order_number}',
+            body=render_to_string('email/order_status_update.txt', context),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[notification.recipient_email],
+        )
+        message.attach_alternative(render_to_string('email/order_status_update.html', context), 'text/html')
+        if message.send(fail_silently=False) != 1:
+            raise RuntimeError('Email backend did not confirm delivery.')
+    except Exception as exc:
+        OrderStatusNotification.objects.filter(pk=notification_id).update(
+            status='FAILED', error=str(exc)[:2000], updated_at=timezone.now(),
+        )
+        logger.exception('Order status email failed for notification %s', notification_id)
+        return False
+    OrderStatusNotification.objects.filter(pk=notification_id).update(
+        status='SENT', error='', sent_at=timezone.now(), updated_at=timezone.now(),
+    )
+    return True

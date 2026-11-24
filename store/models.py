@@ -1,6 +1,8 @@
 import secrets
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from .state_utils import normalize_state
 
 
 class Product(models.Model):
@@ -147,6 +149,7 @@ class GuestOrder(models.Model):
     mobile = models.CharField(max_length=10, db_index=True)
     email = models.EmailField()
     address = models.JSONField(default=dict)
+    delivery_state = models.CharField(max_length=100, blank=True, db_index=True)
     subtotal = models.PositiveIntegerField()
     shipping_charge = models.PositiveIntegerField(default=0)
     delivery_type = models.CharField(max_length=20, choices=DELIVERY_TYPES, default='STANDARD')
@@ -177,10 +180,46 @@ class GuestOrder(models.Model):
             self.order_number = f"SE-{timezone.now():%Y%m%d}-{secrets.token_hex(3).upper()}"
         if not self.tracking_token:
             self.tracking_token = secrets.token_urlsafe(24)
+        if not self.delivery_state and isinstance(self.address, dict):
+            self.delivery_state = normalize_state(self.address.get('state'))
         super().save(*args, **kwargs)
 
     def __str__(self):
         return self.order_number
+
+
+class CoordinatorProfile(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='coordinator_profile')
+    states = models.JSONField(default=list, blank=True)
+    mobile = models.CharField(max_length=10, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        self.states = sorted({str(state).strip() for state in (self.states or []) if str(state).strip()})
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.user.get_full_name() or self.user.username
+
+
+class OrderStatusHistory(models.Model):
+    order = models.ForeignKey(GuestOrder, on_delete=models.CASCADE, related_name='status_history')
+    shipment_status = models.CharField(max_length=40, choices=GuestOrder.SHIPMENT_STATUSES)
+    customer_message = models.CharField(max_length=240, blank=True)
+    internal_note = models.TextField(blank=True)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='order_status_changes',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('created_at', 'id')
+
+    def __str__(self):
+        return f'{self.order.order_number}: {self.get_shipment_status_display()}'
 
 
 class OrderItem(models.Model):
@@ -224,10 +263,17 @@ class PaymentAttempt(models.Model):
 
 
 class OrderBackgroundJob(models.Model):
-    JOB_TYPES = [('SEND_CONFIRMATION_EMAILS', 'Send confirmation emails')]
+    JOB_TYPES = [
+        ('SEND_CONFIRMATION_EMAILS', 'Send confirmation emails'),
+        ('SEND_STATUS_EMAIL', 'Send customer status email'),
+    ]
     STATUSES = [('PENDING', 'Pending'), ('PROCESSING', 'Processing'), ('COMPLETED', 'Completed'), ('FAILED', 'Failed')]
 
     order = models.ForeignKey(GuestOrder, on_delete=models.CASCADE, related_name='background_jobs')
+    status_history = models.OneToOneField(
+        OrderStatusHistory, null=True, blank=True, on_delete=models.CASCADE,
+        related_name='background_job',
+    )
     job_type = models.CharField(max_length=40, choices=JOB_TYPES)
     status = models.CharField(max_length=20, choices=STATUSES, default='PENDING', db_index=True)
     attempts = models.PositiveSmallIntegerField(default=0)
@@ -240,8 +286,29 @@ class OrderBackgroundJob(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=('order', 'job_type'), name='unique_order_background_job'),
+            models.UniqueConstraint(
+                fields=('order', 'job_type'), condition=models.Q(status_history__isnull=True),
+                name='unique_order_background_job',
+            ),
         ]
+
+
+class OrderStatusNotification(models.Model):
+    STATUSES = [('PENDING', 'Pending'), ('SENDING', 'Sending'), ('SENT', 'Sent'), ('FAILED', 'Failed')]
+
+    status_history = models.OneToOneField(
+        OrderStatusHistory, on_delete=models.CASCADE, related_name='customer_notification',
+    )
+    recipient_email = models.EmailField()
+    status = models.CharField(max_length=20, choices=STATUSES, default='PENDING', db_index=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    error = models.TextField(blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.status_history.order.order_number} status to {self.recipient_email}'
 
 
 class OrderNotificationRecipient(models.Model):

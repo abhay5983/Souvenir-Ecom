@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import CatalogueIcon from "../common/CatalogueIcon";
 
 function getCatalogueMrp(series) {
   const prices = series.variants
@@ -27,6 +28,10 @@ function SeriesCard({
     : `/books/${series.slug}`;
 
   const cardChips = (series.digitalFeatures ?? []).slice(0, 2);
+  const remainingFeatureCount = Math.max(
+    (series.digitalFeatures ?? []).length - cardChips.length,
+    0,
+  );
 
   return (
     <article className="series-card">
@@ -68,10 +73,20 @@ function SeriesCard({
                 {chip}
               </span>
             ))}
+            {remainingFeatureCount > 0 && (
+              <span
+                className="chip chip-more"
+                title={`${remainingFeatureCount} more digital ${remainingFeatureCount === 1 ? "feature" : "features"}`}
+                aria-label={`${remainingFeatureCount} more digital ${remainingFeatureCount === 1 ? "feature" : "features"}`}
+              >
+                +{remainingFeatureCount} more
+              </span>
+            )}
           </div>
         )}
 
         <p className="card-price">
+          <CatalogueIcon name="price" />
           <strong>
             {mrp
               ? `Catalogue MRP from ${mrp}`
@@ -83,7 +98,7 @@ function SeriesCard({
           className="button small series-add-button"
           to={detailPath}
         >
-          Add to cart
+          <CatalogueIcon name="cart" /> Add to cart
         </Link>
       </div>
     </article>

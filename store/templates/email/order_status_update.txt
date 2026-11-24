@@ -1,0 +1,21 @@
+Hello {{ order.customer_name }},
+
+Your Souvenir Publishers order has been updated.
+
+Order number: {{ order.order_number }}
+Order status: {{ history.get_shipment_status_display }}
+Courier: Trackon
+AWB number: {{ order.courier_id }}
+{% if order.estimated_delivery_date %}Expected delivery: {{ order.estimated_delivery_date|date:"d M Y" }}
+{% endif %}{% if history.customer_message %}Update: {{ history.customer_message }}
+{% endif %}
+Track your shipment on Trackon:
+{{ trackon_url }}
+
+Enter AWB {{ order.courier_id }} on the Trackon page.
+
+You can also view your Souvenir order status here:
+{{ site_tracking_url }}
+
+Regards,
+Souvenir Publishers

@@ -13,7 +13,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 from .integrations.exceptions import IntegrationError
 from .integrations.razorpay_gateway import create_payment_order, fetch_payment, payments_configured
-from .models import DigitalLearningRequest, GuestOrder, IntegrationEvent, OrderBackgroundJob, OrderItem, PaymentAttempt, Product, PublicOutreachRequest
+from .models import DigitalLearningRequest, DigitalResource, GuestOrder, IntegrationEvent, OrderBackgroundJob, OrderItem, PaymentAttempt, Product, PublicOutreachRequest
 from .rate_limit import rate_limit
 from .resource_import import normalize_isbn
 
@@ -55,7 +55,7 @@ OUTREACH_REQUIRED = {
 }
 @require_GET
 def catalogue(request):
-    products = Product.objects.filter(active=True, public_visibility=True).order_by(
+    products = Product.objects.filter(active=True, public_visibility=True).select_related('digital_resource').order_by(
         'series_title', 'sort_order', 'level', 'title',
     )
     grouped = {}
@@ -75,8 +75,15 @@ def catalogue(request):
             'coverTone': product.cover_tone,
             'featured': product.featured,
             'publicVisibility': product.public_visibility,
+            'hasResources': False,
             'variants': [],
         })
+        try:
+            resource = product.digital_resource
+        except DigitalResource.DoesNotExist:
+            resource = None
+        has_resources = bool(resource and (resource.student_url or resource.teacher_url))
+        series['hasResources'] = series['hasResources'] or has_resources
         series['variants'].append({
             'id': product.sku,
             'sku': product.sku,
@@ -87,6 +94,7 @@ def catalogue(request):
             'priceINR': product.price_inr,
             'stockQuantity': product.stock_quantity,
             'available': product.stock_quantity > 0,
+            'hasResources': has_resources,
         })
     series_list = list(grouped.values())
     values = lambda field: sorted({item[field] for item in series_list if item[field]})
@@ -445,6 +453,16 @@ def public_order(order):
         'trackingToken': order.tracking_token,
         'courierName': order.courier_name,
         'estimatedDeliveryDate': order.estimated_delivery_date.isoformat() if order.estimated_delivery_date else None,
+        'trackingNumber': order.courier_id,
+        'courierTrackingUrl': (
+            'https://www.trackon.in/data/SingleShipment'
+            if order.courier_name.casefold() == 'trackon' and order.courier_id else None
+        ),
+        'statusHistory': [
+            {'status': entry.shipment_status, 'label': entry.get_shipment_status_display(),
+             'message': entry.customer_message, 'updatedAt': entry.created_at.isoformat()}
+            for entry in order.status_history.all()
+        ],
     }
 
 
@@ -786,7 +804,7 @@ def track_order(request):
     mobile = clean_mobile(payload.get('mobile'))
     if not mobile:
         return error('Enter a valid Indian mobile number.')
-    order = GuestOrder.objects.prefetch_related('items').filter(
+    order = GuestOrder.objects.prefetch_related('items', 'status_history').filter(
         order_number__iexact=order_number, mobile=mobile,
     ).first()
     if not order:

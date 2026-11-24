@@ -1,4 +1,13 @@
 import { NavLink } from "react-router-dom";
+import CatalogueIcon from "../common/CatalogueIcon";
+
+const NAVIGATION = [
+  { label: "About Us", to: "/about", icon: "about" },
+  { label: "Books", to: "/books", icon: "books" },
+  { label: "Digital Learning", to: "/digital-learning", icon: "digital" },
+  { label: "Help", to: "/help", icon: "help" },
+  { label: "Track Order", to: "/track-order", icon: "track" },
+];
 
 function PublicNavigation({
   className = "primary-nav",
@@ -15,45 +24,17 @@ function PublicNavigation({
       className={className}
       aria-label="Primary navigation"
     >
-      <NavLink
-        className={getNavClass}
-        to="/about"
-        onClick={onNavigate}
-      >
-        About Us
-      </NavLink>
-
-      <NavLink
-        className={getNavClass}
-        to="/books"
-        onClick={onNavigate}
-      >
-        Books
-      </NavLink>
-
-      <NavLink
-        className={getNavClass}
-        to="/digital-learning"
-        onClick={onNavigate}
-      >
-        Digital Learning
-      </NavLink>
-
-      <NavLink
-        className={getNavClass}
-        to="/help"
-        onClick={onNavigate}
-      >
-        Help
-      </NavLink>
-
-      <NavLink
-        className={getNavClass}
-        to="/track-order"
-        onClick={onNavigate}
-      >
-        Track Order
-      </NavLink>
+      {NAVIGATION.map((item) => (
+        <NavLink
+          className={getNavClass}
+          to={item.to}
+          onClick={onNavigate}
+          key={item.to}
+        >
+          <CatalogueIcon name={item.icon} />
+          <span>{item.label}</span>
+        </NavLink>
+      ))}
     </nav>
   );
 }

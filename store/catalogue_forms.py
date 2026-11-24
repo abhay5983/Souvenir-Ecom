@@ -16,7 +16,7 @@ class CatalogueBookForm(forms.ModelForm):
     class Meta:
         model = Product
         fields = (
-            'title', 'series_title', 'isbn', 'subject', 'description', 'price_inr',
+            'title', 'series_title', 'isbn', 'subject', 'level', 'description', 'price_inr',
             'stock_quantity', 'sort_order', 'cover_image_url', 'featured', 'public_visibility', 'active',
         )
         widgets = {
@@ -27,6 +27,7 @@ class CatalogueBookForm(forms.ModelForm):
             'price_inr': 'Price (₹)',
             'stock_quantity': 'Available stock',
             'sort_order': 'Display order within series',
+            'level': 'Class/Grade',
             'cover_image_url': 'Cover photo link',
             'public_visibility': 'Show in online catalogue',
             'active': 'Available for purchase',

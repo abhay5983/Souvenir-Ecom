@@ -25,6 +25,7 @@ def frontend(request):
 urlpatterns = [
     path('', frontend, name='frontend'),
     path('catalogue-manager/', include('store.catalogue_urls')),
+    path('coordinator/', include('store.coordinator_urls')),
     path('admin/', admin.site.urls),
     path('api/', include('store.urls')),
     path('api/', include('workflow.urls')),
