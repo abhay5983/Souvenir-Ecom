@@ -87,8 +87,19 @@ function openRazorpayCheckout(payment, customer, onPaymentAuthorized) {
         },
       },
     });
-    checkout.on("payment.failed", (response) => {
+    checkout.on("payment.failed", async (response) => {
       const message = response?.error?.description || "Payment failed. Please try again or use another payment method.";
+      const metadata = response?.error?.metadata ?? {};
+      try {
+        await ecommerceService.reportPaymentFailed({
+          razorpay_order_id: metadata.order_id || payment.orderId,
+          razorpay_payment_id: metadata.payment_id || "",
+          error_code: response?.error?.code || "",
+          error_description: message,
+        });
+      } catch {
+        // Razorpay's signed webhook remains the authoritative fallback.
+      }
       finish(reject, new Error(message));
     });
     checkout.open();

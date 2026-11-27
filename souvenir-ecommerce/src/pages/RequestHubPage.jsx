@@ -19,6 +19,8 @@ function DisplayValue({ value }) {
 }
 
 function RequestHubPage() {
+  const [admin, setAdmin] = useState(undefined);
+  const [loginForm, setLoginForm] = useState({ identity: "", password: "" });
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState(null);
   const [filters, setFilters] = useState({ query: "", source: "ALL", status: "ALL", group: "ALL" });
@@ -26,18 +28,24 @@ function RequestHubPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState(null);
 
   const loadRequests = useCallback(async () => {
     setLoading(true); setMessage("");
-    try { const result = await requestHubService.list(); setItems(result.requests ?? []); }
-    catch (error) { setMessage(error.message); }
+    try { const result = await requestHubService.list(); setItems(result.requests ?? []); setLastRefreshed(new Date()); }
+    catch (error) { if (error.status === 401 || error.status === 403) setAdmin(null); setMessage(error.message); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => {
     let active = true;
-    requestHubService.list()
-      .then((result) => { if (active) setItems(result.requests ?? []); })
-      .catch((error) => { if (active) setMessage(error.message); })
+    requestHubService.session()
+      .then(async (session) => {
+        if (!active) return;
+        setAdmin(session.user);
+        const result = await requestHubService.list();
+        if (active) { setItems(result.requests ?? []); setLastRefreshed(new Date()); }
+      })
+      .catch((error) => { if (active) { setAdmin(null); if (error.status !== 401) setMessage(error.message); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
@@ -54,6 +62,21 @@ function RequestHubPage() {
 
   function open(item) { setSelected(item); setEdit({ status: item.status, assignedTeam: item.assignedTeam ?? "", assignedTo: item.assignedTo ?? "", note: "" }); }
   function clearFilters() { setFilters({ query: "", source: "ALL", status: "ALL", group: "ALL" }); }
+  async function signIn(event) {
+    event.preventDefault(); setBusy(true); setMessage("");
+    try {
+      const session = await requestHubService.login(loginForm);
+      setAdmin(session.user); setLoginForm({ identity: "", password: "" });
+      await loadRequests();
+    } catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
+  async function signOut() {
+    setBusy(true); setMessage("");
+    try { await requestHubService.logout(); setAdmin(null); setItems([]); setSelected(null); }
+    catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
   async function save(event) {
     event.preventDefault(); setBusy(true); setMessage("");
     try { const updated = await requestHubService.update(selected, edit); setItems((current) => current.map((item) => item.source === updated.source && item.id === updated.id ? updated : item)); open(updated); setMessage(`${updated.reference} was updated successfully.`); }
@@ -66,9 +89,12 @@ function RequestHubPage() {
     const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = "souvenir-requests.csv"; link.click(); URL.revokeObjectURL(link.href);
   }
 
+  if (admin === undefined) return <section className="portal-main control-main hub-page"><div className="hub-auth-shell"><div className="card hub-auth-card"><div className="hub-auth-mark">S</div><p className="eyebrow">Secure administration</p><h1>Checking access</h1><p>Verifying your administrator session…</p></div></div></section>;
+  if (!admin) return <section className="portal-main control-main hub-page"><div className="hub-auth-shell"><form className="card hub-auth-card" onSubmit={signIn}><div className="hub-auth-mark">S</div><p className="eyebrow">Secure administration</p><h1>Request dashboard</h1><p>Sign in with an active Django administrator or staff account.</p>{message && <div className="notice danger" role="alert">{message}</div>}<div className="form-field"><label htmlFor="hub-identity">Username or email</label><input id="hub-identity" autoComplete="username" value={loginForm.identity} onChange={(event) => setLoginForm((current) => ({ ...current, identity: event.target.value }))} required autoFocus /></div><div className="form-field"><label htmlFor="hub-password">Password</label><input id="hub-password" type="password" autoComplete="current-password" value={loginForm.password} onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))} required /></div><button className="button full-width" disabled={busy}>{busy ? "Signing in…" : "Sign in securely"}</button><small>Customer and order information is restricted to authorised staff.</small></form></div></section>;
+
   return <section className="portal-main control-main hub-page"><div className="container request-hub">
-    <header className="hub-header"><div><p className="eyebrow">Central request dashboard</p><h1>All customer requests</h1><p>Find, review and update every digital-resource and public enquiry from one place.</p></div><div className="hub-header-actions"><button className="button secondary" type="button" onClick={loadRequests} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button><button className="button ghost" type="button" onClick={exportCsv} disabled={!filtered.length}>Export CSV</button></div></header>
-    <div className="hub-access-note" role="note"><strong>Internal dashboard</strong><span>Login protection is temporarily disabled. Keep this URL private.</span></div>
+    <header className="hub-header"><div><p className="eyebrow">Central request dashboard</p><h1>Customer operations</h1><p>Review ecommerce orders, digital-resource requests and public enquiries from one secure workspace.</p></div><div className="hub-header-actions"><div className="hub-admin-user"><strong>{admin.name}</strong><small>Administrator</small></div><button className="button secondary" type="button" onClick={loadRequests} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button><button className="button ghost" type="button" onClick={exportCsv} disabled={!filtered.length}>Export CSV</button><button className="button ghost" type="button" onClick={signOut} disabled={busy}>Sign out</button></div></header>
+    <div className="hub-secure-note" role="note"><strong>Secure staff workspace</strong><span>{lastRefreshed ? `Last refreshed ${lastRefreshed.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "Loading current requests"}</span></div>
     {message && <div className="notice neutral" role="status">{message}</div>}
     <nav className="hub-summary" aria-label="Filter by progress">{[["ALL", "All requests", "Complete queue"], ["NEW", "New", "Needs attention"], ["ACTIVE", "In progress", "Being handled"], ["DONE", "Completed", "Resolved or closed"]].map(([group, title, hint]) => <button key={group} type="button" className={`hub-summary-card ${filters.group === group ? "active" : ""}`} onClick={() => setFilters((current) => ({ ...current, group, status: "ALL" }))}><span>{title}</span><strong>{counts[group]}</strong><small>{hint}</small></button>)}</nav>
     <section className="card hub-toolbar" aria-label="Request filters"><div className="hub-search"><label htmlFor="hub-search">Search requests</label><input id="hub-search" type="search" value={filters.query} onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Search order number, reference, name, phone or email" /></div><div className="form-field"><label htmlFor="hub-source">Request type</label><select id="hub-source" value={filters.source} onChange={(event) => setFilters((current) => ({ ...current, source: event.target.value }))}><option value="ALL">All request types</option><option value="ORDER">Book orders</option><option value="DIGITAL">Digital resources</option><option value="OUTREACH">Public outreach</option></select></div><div className="form-field"><label htmlFor="hub-status">Exact status</label><select id="hub-status" value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value, group: "ALL" }))}><option value="ALL">Any status</option>{[...new Set(items.map((item) => item.status))].map((status) => <option key={status} value={status}>{label(status)}</option>)}</select></div>{hasFilters && <button className="hub-clear" type="button" onClick={clearFilters}>Clear filters</button>}</section>

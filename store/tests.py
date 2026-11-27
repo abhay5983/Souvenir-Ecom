@@ -303,6 +303,58 @@ class RazorpayPaymentApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()['code'], 'MISSING_PAYMENT_FIELDS')
 
+    def test_browser_failure_marks_current_order_failed(self):
+        order, attempt, _ = self.pending_payment()
+        response = self.post('/api/payments/failed', {
+            'razorpay_order_id': 'order_security',
+            'razorpay_payment_id': 'pay_failed',
+            'error_code': 'BAD_REQUEST_ERROR',
+            'error_description': 'Payment could not be completed.',
+        })
+        self.assertEqual(response.status_code, 200, response.content)
+        order.refresh_from_db()
+        attempt.refresh_from_db()
+        self.assertEqual(order.payment_status, 'FAILED')
+        self.assertEqual(order.order_status, 'AWAITING_PAYMENT')
+        self.assertEqual(attempt.status, 'FAILED')
+
+    def test_late_failure_never_overwrites_paid_order(self):
+        order, attempt, _ = self.pending_payment()
+        order.payment_status = 'PAID'
+        order.order_status = 'PAID'
+        order.save(update_fields=['payment_status', 'order_status', 'updated_at'])
+        attempt.status = 'PAID'
+        attempt.save(update_fields=['status', 'updated_at'])
+        response = self.post('/api/payments/failed', {
+            'razorpay_order_id': 'order_security', 'razorpay_payment_id': 'pay_late_failure',
+        })
+        self.assertEqual(response.status_code, 200, response.content)
+        order.refresh_from_db()
+        attempt.refresh_from_db()
+        self.assertEqual(order.payment_status, 'PAID')
+        self.assertEqual(attempt.status, 'PAID')
+
+    def test_failed_webhook_marks_order_failed(self):
+        order, attempt, _ = self.pending_payment(order_id='order_failed_webhook')
+        payload = {
+            'id': 'event_failed_webhook', 'event': 'payment.failed',
+            'payload': {'payment': {'entity': {
+                'id': 'pay_failed_webhook', 'order_id': 'order_failed_webhook',
+                'amount': 30100, 'currency': 'INR', 'status': 'failed',
+            }}},
+        }
+        raw = json.dumps(payload).encode()
+        signature = hmac.new(b'webhook_secret', raw, hashlib.sha256).hexdigest()
+        response = self.client.post(
+            '/api/hooks/razorpay/events', raw, content_type='application/json',
+            HTTP_X_RAZORPAY_SIGNATURE=signature,
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        order.refresh_from_db()
+        attempt.refresh_from_db()
+        self.assertEqual(order.payment_status, 'FAILED')
+        self.assertEqual(attempt.status, 'FAILED')
+
     @patch('store.views.fetch_payment')
     def test_payment_amount_mismatch_is_rejected(self, fetch_payment):
         order, _, signature = self.pending_payment()
@@ -753,6 +805,12 @@ class DigitalLearningRequestTests(TestCase):
 
 
 class RequestHubTests(TestCase):
+    def setUp(self):
+        self.admin = get_user_model().objects.create_superuser(
+            username='request-admin', email='request-admin@example.com', password='safe-admin-password',
+            first_name='Request', last_name='Administrator',
+        )
+
     def test_public_outreach_submission_is_persisted(self):
         response = self.client.post('/api/outreach-requests', json.dumps({
             'formType': 'GENERAL_ENQUIRY',
@@ -766,16 +824,23 @@ class RequestHubTests(TestCase):
         self.assertEqual(saved.requester_name, 'Public Customer')
         self.assertTrue(response.json()['publicReference'].startswith('OUT-'))
 
-    def test_public_user_can_view_combined_request_hub(self):
+    def test_request_hub_requires_staff_authentication(self):
+        response = self.client.get('/api/request-hub')
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()['code'], 'UNAUTHENTICATED')
+
+    def test_staff_user_can_view_combined_request_hub(self):
         PublicOutreachRequest.objects.create(form_type='GENERAL_ENQUIRY', form_title='General Enquiry', category='General Support')
+        self.client.force_login(self.admin)
         response = self.client.get('/api/request-hub')
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()['requests'][0]['source'], 'OUTREACH')
 
-    def test_public_user_can_update_request_from_dashboard(self):
+    def test_staff_user_can_update_request_from_dashboard(self):
         item = PublicOutreachRequest.objects.create(
             form_type='GENERAL_ENQUIRY', form_title='General Enquiry', category='General Support',
         )
+        self.client.force_login(self.admin)
         response = self.client.post(
             f'/api/request-hub/OUTREACH/{item.id}',
             json.dumps({'status': 'IN_REVIEW', 'assignedTeam': 'Customer Care', 'note': 'Called customer.'}),
@@ -784,7 +849,7 @@ class RequestHubTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         item.refresh_from_db()
         self.assertEqual(item.status, 'IN_REVIEW')
-        self.assertEqual(item.internal_notes[0]['actor'], 'Request dashboard')
+        self.assertEqual(item.internal_notes[0]['actor'], 'Request Administrator')
 
     def test_customer_order_appears_and_can_be_updated_in_request_hub(self):
         product = Product.objects.create(sku='hub-book', title='Hub Book', price_inr=250)
@@ -794,6 +859,7 @@ class RequestHubTests(TestCase):
             subtotal=250, shipping_charge=200, total=450,
         )
         order.items.create(product=product, sku=product.sku, title=product.title, unit_price=250, quantity=1, line_total=250)
+        self.client.force_login(self.admin)
         response = self.client.get('/api/request-hub')
         saved = next(item for item in response.json()['requests'] if item['source'] == 'ORDER')
         self.assertEqual(saved['reference'], order.order_number)
@@ -804,3 +870,18 @@ class RequestHubTests(TestCase):
         )
         self.assertEqual(updated.status_code, 200, updated.content)
         self.assertEqual(updated.json()['status'], 'PROCESSING')
+
+    def test_admin_can_sign_in_to_request_dashboard_with_admin_credentials(self):
+        response = self.client.post('/api/request-hub/login', json.dumps({
+            'identity': 'request-admin@example.com', 'password': 'safe-admin-password',
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['user']['name'], 'Request Administrator')
+        self.assertEqual(self.client.get('/api/request-hub/session').status_code, 200)
+
+    def test_non_staff_account_cannot_access_request_dashboard(self):
+        user = get_user_model().objects.create_user('ordinary-user', password='ordinary-password')
+        self.client.force_login(user)
+        response = self.client.get('/api/request-hub')
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['code'], 'FORBIDDEN')

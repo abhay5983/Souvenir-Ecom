@@ -12,7 +12,6 @@ import { useCatalogue } from "../context/CatalogueContext.jsx";
 
 const FILTER_KEYS = [
   "query",
-  "classLevel",
   "subject",
   "series",
   "resources",
@@ -21,7 +20,6 @@ const FILTER_KEYS = [
 
 const PARAMETER_NAMES = {
   query: "q",
-  classLevel: "class",
 };
 
 function getFiltersFromSearchParams(searchParams) {
@@ -48,22 +46,8 @@ function matchesText(value, query) {
     .includes(query.toLocaleLowerCase());
 }
 
-function getVariantClassLevel(variant) {
-  const savedLevel = String(variant.level ?? "").trim();
-  if (savedLevel) return savedLevel;
-
-  const match = String(variant.title ?? "").match(
-    /\b(?:class|grade)\s*[-:]?\s*(nursery|lkg|ukg|[1-9]|1[0-2])\b/i,
-  );
-  if (!match) return "";
-
-  const value = match[1].toUpperCase();
-  return `Class ${value}`;
-}
-
 function getActiveFilterLabel(name, value) {
   if (name === "query") return `Search: ${value}`;
-  if (name === "classLevel") return `Class: ${value}`;
   if (name === "subject") return `Subject: ${value}`;
   if (name === "series") return `Series: ${value}`;
   if (name === "resources") return value === "available" ? "Digital resources" : "Print only";
@@ -100,15 +84,6 @@ function searchCatalogue(catalogue, filters) {
       if (!queryMatches) {
         return false;
       }
-    }
-
-    if (
-      filters.classLevel &&
-      !(series.variants ?? []).some(
-        (variant) => getVariantClassLevel(variant) === filters.classLevel,
-      )
-    ) {
-      return false;
     }
 
     if (
@@ -222,12 +197,6 @@ function BooksPage({
     return searchCatalogue(catalogue, filters);
   }, [catalogue, filters]);
 
-  const classLevels = useMemo(() => [...new Set(
-    catalogue.flatMap((series) =>
-      (series.variants ?? []).map(getVariantClassLevel).filter(Boolean),
-    ),
-  )].sort((left, right) => left.localeCompare(right, undefined, { numeric: true })), [catalogue]);
-
   const seriesOptions = useMemo(() => [...new Set(
     catalogue.map((series) => series.title).filter(Boolean),
   )].sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" })), [catalogue]);
@@ -256,7 +225,7 @@ function BooksPage({
       );
     }
 
-    ["classLevel", "subject", "series", "resources", "sort"].forEach((key) => {
+    ["subject", "series", "resources", "sort"].forEach((key) => {
       const value = nextFilters[key];
 
       if (value && value !== "All") {
@@ -298,10 +267,6 @@ function BooksPage({
 
   function removeFilter(name) {
     handleFilterChange(name, "All");
-  }
-
-  function openFilters() {
-    setFiltersOpen(true);
   }
 
   function closeFilters() {
@@ -397,15 +362,6 @@ function BooksPage({
               />
             </label>
 
-            <button
-              className="button secondary filter-mobile-button"
-              type="button"
-              aria-expanded={filtersOpen}
-              aria-controls="catalogue-filters"
-              onClick={openFilters}
-            >
-              <CatalogueIcon name="filters" /> Filters
-            </button>
           </form>
 
           {Object.keys(filters).length > 0 && (
@@ -459,18 +415,6 @@ function BooksPage({
                   Clear all
                 </button>
               </div>
-
-              {classLevels.length > 0 && (
-                <SelectFilter
-                  name="classLevel"
-                  label="Class/Grade"
-                  options={classLevels}
-                  value={filters.classLevel}
-                  onChange={handleFilterChange}
-                  allLabel="All classes"
-                  icon="class"
-                />
-              )}
 
               <SelectFilter
                 name="subject"

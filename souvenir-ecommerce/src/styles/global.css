@@ -1154,6 +1154,9 @@ h3 {
 }
 
 .tracking-result { display: block; }
+.tracking-result.payment-incomplete { border-color: #e1c981; }
+.tracking-result.payment-incomplete .notice { margin: 1rem 0; }
+.tracking-result.payment-incomplete .notice p { margin: .35rem 0 0; }
 .tracking-lead { color: var(--ink-500); margin: -.35rem 0 1.25rem; }
 .courier-track-action { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; margin-top: 1rem; }
 .courier-track-action small { color: var(--ink-500); }
@@ -6876,10 +6879,20 @@ tr:last-child td {
 /* Central request dashboard */
 .hub-page { background: #f5f7fa; min-height: 100vh; }
 .request-hub { max-width: 1480px; }
+.hub-auth-shell { display: grid; min-height: calc(100vh - 80px); place-items: center; padding: 32px 16px; background: radial-gradient(circle at 15% 10%, rgba(31,107,79,.16), transparent 32%), #f5f7fa; }
+.hub-auth-card { width: min(440px, 100%); padding: 32px; }
+.hub-auth-card h1 { margin: 6px 0 8px; font-size: 2rem; }
+.hub-auth-card > p:not(.eyebrow) { margin: 0 0 22px; color: var(--ink-600); }
+.hub-auth-card .form-field { margin-bottom: 15px; }
+.hub-auth-card > small { display: block; margin-top: 15px; color: var(--ink-500); text-align: center; }
+.hub-auth-mark { display: grid; width: 48px; height: 48px; margin-bottom: 20px; place-items: center; border-radius: 13px; background: var(--brand-green-700); color: #fff; font: 800 1.5rem Georgia, serif; }
 .hub-header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-end; margin-bottom: 18px; }
 .hub-header h1 { margin: 3px 0 7px; font-size: clamp(2rem, 4vw, 3rem); }
 .hub-header p:last-child { margin: 0; color: var(--ink-600); }
 .hub-header-actions { display: flex; gap: 10px; flex-shrink: 0; }
+.hub-admin-user { display: flex; min-width: 130px; flex-direction: column; justify-content: center; padding-right: 12px; border-right: 1px solid var(--border); line-height: 1.25; }
+.hub-admin-user small { color: var(--ink-500); }
+.hub-secure-note { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 20px; padding: 10px 14px; border: 1px solid #b9d9ca; border-radius: 10px; background: #edf8f2; color: #18593e; font-size: .84rem; }
 .hub-access-note { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; padding: 10px 14px; border: 1px solid #f0d79b; border-radius: 10px; background: #fff9e9; color: #6d5213; font-size: .84rem; }
 .hub-access-note strong { flex-shrink: 0; }
 .hub-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }

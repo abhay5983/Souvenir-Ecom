@@ -58,7 +58,7 @@ function HomePage() {
 
               <a
                 className="button secondary"
-                href="https://souvenirdata.s3.ap-south-1.amazonaws.com/ebooks/souvenir_catalogue_2027-28_flipbook_20261104_051121/Souvenir_Catalogue_2027-28_Flipbook/index.html#p=48"
+                href="https://souvenirdata.s3.ap-south-1.amazonaws.com/ebooks/souvenir_catalogue_2027-28_flipbook_20261104_051121/Souvenir_Catalogue_2027-28_Flipbook/index.html"
               >
                 Catalogue
               </a>

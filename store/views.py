@@ -2,10 +2,13 @@ import hashlib
 import hmac
 import json
 import re
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
+from django.db.models import Q
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -362,8 +365,66 @@ def serialize_hub_order(order):
     }
 
 
+def request_hub_access_error(request):
+    if not request.user.is_authenticated:
+        return error('Administrator sign-in is required.', 401, 'UNAUTHENTICATED')
+    if not request.user.is_active or not request.user.is_staff:
+        return error('This account does not have request-dashboard access.', 403, 'FORBIDDEN')
+    return None
+
+
+@require_GET
+def request_hub_session(request):
+    access_error = request_hub_access_error(request)
+    if access_error:
+        return access_error
+    return JsonResponse({
+        'authenticated': True,
+        'user': {
+            'username': request.user.username,
+            'name': request.user.get_full_name() or request.user.username,
+            'email': request.user.email,
+        },
+    })
+
+
+@require_POST
+@rate_limit(scope='request-hub-login', limit=5, window=300)
+def request_hub_login(request):
+    payload = parse_json(request)
+    if payload is None:
+        return error('Invalid JSON body.')
+    identity = str(payload.get('identity') or '').strip()
+    password = str(payload.get('password') or '')
+    User = get_user_model()
+    candidate = User.objects.filter(
+        Q(username__iexact=identity) | Q(email__iexact=identity),
+    ).first()
+    user = authenticate(
+        request, username=candidate.username if candidate else identity, password=password,
+    )
+    if not user:
+        return error('The username, email or password is incorrect.', 401, 'INVALID_CREDENTIALS')
+    if not user.is_active or not user.is_staff:
+        return error('This account does not have request-dashboard access.', 403, 'FORBIDDEN')
+    login(request, user)
+    return JsonResponse({
+        'authenticated': True,
+        'user': {'username': user.username, 'name': user.get_full_name() or user.username, 'email': user.email},
+    })
+
+
+@require_POST
+def request_hub_logout(request):
+    logout(request)
+    return JsonResponse({'ok': True})
+
+
 @require_GET
 def request_hub(request):
+    access_error = request_hub_access_error(request)
+    if access_error:
+        return access_error
     items = [serialize_hub_outreach(item) for item in PublicOutreachRequest.objects.all()]
     items += [serialize_hub_digital(item) for item in DigitalLearningRequest.objects.all()]
     items += [serialize_hub_order(item) for item in GuestOrder.objects.prefetch_related('items').all()]
@@ -373,6 +434,9 @@ def request_hub(request):
 
 @require_POST
 def update_hub_request(request, source, request_id):
+    access_error = request_hub_access_error(request)
+    if access_error:
+        return access_error
     if source.upper() not in {'OUTREACH', 'DIGITAL', 'ORDER'}:
         return error('Unknown request source.', 400, 'INVALID_SOURCE')
     payload = parse_json(request)
@@ -381,7 +445,8 @@ def update_hub_request(request, source, request_id):
     status = str(payload.get('status', '')).strip().upper()
     team, assignee = str(payload.get('assignedTeam', '')).strip()[:120], str(payload.get('assignedTo', '')).strip()[:160]
     note = str(payload.get('note', '')).strip()[:2000]
-    actor, now = 'Request dashboard', timezone.now().isoformat()
+    actor = request.user.get_full_name() or request.user.username
+    now = timezone.now().isoformat()
     if source.upper() == 'ORDER':
         item = GuestOrder.objects.prefetch_related('items').filter(pk=request_id).first()
         if not item:
@@ -736,6 +801,54 @@ def complete_razorpay_payment(order, attempt, provider_payment, *, signature_ver
     return locked
 
 
+def mark_razorpay_payment_failed(attempt, provider_payment):
+    payment_id = str(provider_payment.get('id') or '')
+    with transaction.atomic():
+        locked = GuestOrder.objects.select_for_update().get(pk=attempt.order_id)
+        if locked.payment_status == 'PAID':
+            return locked
+        PaymentAttempt.objects.filter(pk=attempt.pk).update(
+            status='FAILED', transaction_id=payment_id,
+            provider_response=provider_payment,
+        )
+        # A late failure from an older/replaced Razorpay order must never overwrite
+        # a newer attempt or a successfully captured payment.
+        if locked.payment_order_id == attempt.session_id:
+            locked.payment_status = 'FAILED'
+            locked.save(update_fields=['payment_status', 'updated_at'])
+    return locked
+
+
+@never_cache
+@require_POST
+@rate_limit(scope='payment-failed', limit=10, window=300)
+def report_payment_failed(request):
+    payload = parse_json(request)
+    if payload is None:
+        return error('Invalid JSON body.')
+    razorpay_order_id = str(payload.get('razorpay_order_id') or '').strip()
+    if not razorpay_order_id:
+        return error('Payment order ID is required.', 400, 'MISSING_PAYMENT_ORDER')
+    attempt = PaymentAttempt.objects.select_related('order').filter(
+        provider='RAZORPAY', session_id=razorpay_order_id,
+    ).order_by('-created_at').first()
+    if not attempt:
+        return error('Payment order was not found.', 404, 'UNKNOWN_PAYMENT_ORDER')
+    provider_payment = {
+        'id': str(payload.get('razorpay_payment_id') or '').strip(),
+        'order_id': razorpay_order_id,
+        'status': 'failed',
+        'error_code': str(payload.get('error_code') or '')[:100],
+        'error_description': str(payload.get('error_description') or '')[:500],
+        'source': 'checkout_browser',
+    }
+    order = mark_razorpay_payment_failed(attempt, provider_payment)
+    return JsonResponse({
+        'ok': True, 'orderNumber': order.order_number,
+        'paymentStatus': order.payment_status,
+    })
+
+
 @csrf_exempt
 @never_cache
 @require_POST
@@ -784,10 +897,8 @@ def razorpay_webhook(request):
                 event.save(update_fields=['order', 'status', 'error', 'processed_at'])
                 return error('Payment details do not match the order.', 400, 'PAYMENT_MISMATCH')
             complete_razorpay_payment(attempt.order, attempt, payment)
-        elif event_type == 'payment.failed' and attempt.order.payment_status != 'PAID':
-            PaymentAttempt.objects.filter(id=attempt.id).update(
-                status='FAILED', transaction_id=payment_id, provider_response=payment,
-            )
+        elif event_type == 'payment.failed':
+            mark_razorpay_payment_failed(attempt, payment)
 
         event.status, event.error, event.processed_at = 'PROCESSED', '', timezone.now()
         event.save(update_fields=['order', 'status', 'error', 'processed_at'])

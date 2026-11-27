@@ -33,7 +33,10 @@ export async function apiRequest(path, options = {}) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error?.message ?? payload?.detail ?? "The request could not be completed.");
+    const requestError = new Error(payload?.error?.message ?? payload?.detail ?? "The request could not be completed.");
+    requestError.status = response.status;
+    requestError.code = payload?.code;
+    throw requestError;
   }
   return payload.value ?? payload;
 }

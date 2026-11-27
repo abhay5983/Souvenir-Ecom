@@ -41,6 +41,7 @@ export const ecommerceService = {
   createDigitalResourceRequest: (details) => request("/digital-resource-requests", { method: "POST", body: details }),
   createOrder: (order) => request("/create-order", { method: "POST", body: order }),
   verifyPayment: (payment) => request("/verify-payment", { method: "POST", body: payment }),
+  reportPaymentFailed: (payment) => request("/payments/failed", { method: "POST", body: payment }),
   trackOrder: (details) => request("/orders/track", { method: "POST", body: details }),
   integrationStatus: () => request("/integrations/status"),
   retryPayment: (orderNumber, mobile) => request(`/orders/${encodeURIComponent(orderNumber)}/payment-session`, {
